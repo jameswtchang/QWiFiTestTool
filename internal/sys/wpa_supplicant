@@ -1,0 +1,3 @@
+# Placeholder for wpa_supplicant binary
+# This file is intentionally empty and serves as a placeholder
+# Replace this with actual statically compiled wpa_supplicant binary for ARM64 Android

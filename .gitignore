@@ -1,0 +1,27 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+wifi-tool
+
+# Output
+bin/
+dist/
+out/
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Dependency directories
+vendor/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+tmp/
