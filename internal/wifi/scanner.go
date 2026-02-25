@@ -138,7 +138,7 @@ func PrintScanResults(results []ScanResult) {
 		// Truncate SSID if too long
 		ssid := result.SSID
 		if len(ssid) > 17 {
-			ssid = ssid[:14] + "..."
+			ssid = ssid[:16] + "..."
 		}
 
 		// Format: [1] SSID: Mozart-AP8   協議: WiFi 5   頻段: 5GHz   安全性: WPA2-Personal   信號: -36 dBm (良好)

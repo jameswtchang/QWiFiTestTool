@@ -83,4 +83,33 @@
             <Param key="ht_capab">[HT20][SHORT-GI-20]</Param>
         </APConfig>
     </Module>
+
+    <!-- Quectel FCU741R (Realtek RTL8733BU Chipset) -->
+    <Module id="quectel_fcu741r">
+        <DisplayName>Quectel FCU741R (RTL8733BU)</DisplayName>
+        
+        <Kernel>
+            <KoName>rtl8733bu.ko</KoName>
+            <InsmodArgs>rtw_country_code=TW</InsmodArgs>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Param key="interface">wlan0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="ctrl_interface">/var/run/hostapd</Param>
+            <Param key="ctrl_interface_group">0</Param>
+            <Param key="beacon_int">100</Param>
+            <Param key="hw_mode">g</Param>
+            <Param key="channel">6</Param>
+            <Param key="ieee80211n">1</Param>
+            <Param key="ht_capab">[HT20][SHORT-GI-20]</Param>
+        </APConfig>
+    </Module>
 </WiFiTool>
