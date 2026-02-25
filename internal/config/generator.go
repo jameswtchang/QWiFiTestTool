@@ -84,7 +84,7 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 	}
 
 	// Additional parameters from XML
-	paramsMap := models.ParamsToMap(module.APConfig)
+	paramsMap := models.ParamsToMap(module.APConfig.Params)
 	for key, value := range paramsMap {
 		// Skip parameters we've already set
 		if key == "interface" || key == "driver" || key == "ssid" ||

@@ -56,6 +56,8 @@ func main() {
 		case "3":
 			runStationMode(module, binMgr, platformInfo)
 		case "4":
+			runAPConfigEditor(module)
+		case "5":
 			runAPMode(module, binMgr)
 		case "0":
 			fmt.Println("再見!")
@@ -134,6 +136,19 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 // runConfigEditor runs the wpa_supplicant.conf editor
 func runConfigEditor(module *models.WiFiModule, platformInfo *sys.PlatformInfo) {
 	editor := config.NewWpaEditor(module, platformInfo)
+	if err := editor.Start(); err != nil {
+		ui.ShowError(err)
+		return
+	}
+}
+
+// runAPConfigEditor runs the AP config generator/editor
+func runAPConfigEditor(module *models.WiFiModule) {
+	editor, err := config.NewAPConfigEditor(module)
+	if err != nil {
+		ui.ShowError(err)
+		return
+	}
 	if err := editor.Start(); err != nil {
 		ui.ShowError(err)
 		return

@@ -1,6 +1,9 @@
 package models
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"strings"
+)
 
 // WiFiToolConfig represents the root XML structure
 type WiFiToolConfig struct {
@@ -14,7 +17,7 @@ type WiFiModule struct {
 	DisplayName   string       `xml:"DisplayName"`
 	Kernel        KernelConfig `xml:"Kernel"`
 	StationConfig []Param      `xml:"StationConfig>Param"`
-	APConfig      []Param      `xml:"APConfig>Param"`
+	APConfig      APConfig     `xml:"APConfig"`
 }
 
 // KernelConfig contains kernel-level module parameters
@@ -23,6 +26,40 @@ type KernelConfig struct {
 	InsmodArgs    string `xml:"InsmodArgs"`    // Arguments for insmod command
 	Interface     string `xml:"Interface"`     // Network interface name (default: wlan0)
 	DriverBackend string `xml:"DriverBackend"` // Driver backend (default: nl80211)
+}
+
+// APConfig contains structured AP mode configuration
+type APConfig struct {
+	Capabilities *APCapabilities `xml:"Capabilities"`
+	APProfile    *APProfile      `xml:"APProfile"`
+	Network      *APNetwork      `xml:"Network"`
+	FixedParams  []Param         `xml:"FixedParams>Param"`
+	Params       []Param         `xml:"Param"` // backward-compatible flat params
+}
+
+// APCapabilities defines what the hardware module supports
+type APCapabilities struct {
+	Bands        string `xml:"Bands"`        // e.g. "2.4G,5G"
+	Modes        string `xml:"Modes"`        // e.g. "b,g,n,ac,ax"
+	MaxBandwidth int    `xml:"MaxBandwidth"` // e.g. 40, 80, 160
+	SupportDFS   bool   `xml:"SupportDFS"`
+	SupportWPA3  bool   `xml:"SupportWPA3"`
+}
+
+// APProfile holds default AP parameters
+type APProfile struct {
+	SSID     string `xml:"SSID"`
+	Security string `xml:"Security"` // Open, WPA2, WPA3
+	Band     string `xml:"Band"`     // 2.4G, 5G
+	Channel  int    `xml:"Channel"`
+}
+
+// APNetwork holds DHCP / network configuration
+type APNetwork struct {
+	Gateway   string `xml:"Gateway"`
+	Netmask   string `xml:"Netmask"`
+	DHCPStart string `xml:"DHCPStart"`
+	DHCPEnd   string `xml:"DHCPEnd"`
 }
 
 // Param represents a key-value configuration parameter
@@ -54,4 +91,40 @@ func ParamsToMap(params []Param) map[string]string {
 		m[p.Key] = p.Value
 	}
 	return m
+}
+
+// GetBands returns supported bands as a slice
+func (c *APCapabilities) GetBands() []string {
+	if c == nil || c.Bands == "" {
+		return []string{"2.4G"}
+	}
+	return strings.Split(c.Bands, ",")
+}
+
+// GetModes returns supported WiFi modes as a slice
+func (c *APCapabilities) GetModes() []string {
+	if c == nil || c.Modes == "" {
+		return []string{"b", "g", "n"}
+	}
+	return strings.Split(c.Modes, ",")
+}
+
+// HasBand checks if a band is supported
+func (c *APCapabilities) HasBand(band string) bool {
+	for _, b := range c.GetBands() {
+		if strings.TrimSpace(b) == band {
+			return true
+		}
+	}
+	return false
+}
+
+// HasMode checks if a WiFi mode is supported
+func (c *APCapabilities) HasMode(mode string) bool {
+	for _, m := range c.GetModes() {
+		if strings.TrimSpace(m) == mode {
+			return true
+		}
+	}
+	return false
 }

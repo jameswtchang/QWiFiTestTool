@@ -412,15 +412,30 @@ func (h *Hotspot) saveDmesg(logPath, phase string) {
 
 // Stop stops all services
 func (h *Hotspot) Stop() error {
+	// Kill tracked processes first
 	if h.dnsmasqCmd != nil && h.dnsmasqCmd.Process != nil {
-		fmt.Printf("[CMD] kill -9 %d (dnsmasq)\n", h.dnsmasqCmd.Process.Pid)
+		fmt.Printf("[CMD] kill %d (dnsmasq)\n", h.dnsmasqCmd.Process.Pid)
 		h.dnsmasqCmd.Process.Kill()
-		fmt.Println("[INFO] dnsmasq 已停止")
+		h.dnsmasqCmd.Wait()
 	}
 	if h.hostapdCmd != nil && h.hostapdCmd.Process != nil {
-		fmt.Printf("[CMD] kill -9 %d (hostapd)\n", h.hostapdCmd.Process.Pid)
+		fmt.Printf("[CMD] kill %d (hostapd)\n", h.hostapdCmd.Process.Pid)
 		h.hostapdCmd.Process.Kill()
-		fmt.Println("[INFO] hostapd 已停止")
+		h.hostapdCmd.Wait()
 	}
+
+	// Kill any remaining system-wide instances
+	exec.Command("killall", "-9", "hostapd").Run()
+	exec.Command("killall", "-9", "dnsmasq").Run()
+
+	// Tear down the wireless interface to fully remove the AP
+	iface := h.module.Kernel.GetInterface()
+	fmt.Printf("[CMD] ip addr flush dev %s\n", iface)
+	exec.Command("ip", "addr", "flush", "dev", iface).Run()
+	fmt.Printf("[CMD] ip link set %s down\n", iface)
+	exec.Command("ip", "link", "set", iface, "down").Run()
+
+	fmt.Println("[INFO] hostapd 和 dnsmasq 已停止，介面已關閉")
+
 	return nil
 }

@@ -19,6 +19,34 @@
         </StationConfig>
 
         <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G</Bands>
+                <Modes>b,g,n,ac</Modes>
+                <MaxBandwidth>80</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FC21_AP</SSID>
+                <Security>WPA2</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+                <Param key="wmm_enabled">1</Param>
+            </FixedParams>
+
             <Param key="interface">wlan0</Param>
             <Param key="driver">nl80211</Param>
             <Param key="hw_mode">g</Param>
@@ -46,6 +74,33 @@
         </StationConfig>
 
         <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G</Bands>
+                <Modes>b,g,n,ac</Modes>
+                <MaxBandwidth>80</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FCM360W_AP</SSID>
+                <Security>WPA2</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+            </FixedParams>
+
             <Param key="interface">ra0</Param>
             <Param key="driver">nl80211</Param>
             <Param key="hw_mode">g</Param>
@@ -72,15 +127,41 @@
         </StationConfig>
 
         <APConfig>
+            <Capabilities>
+                <Bands>2.4G</Bands>
+                <Modes>b,g,n</Modes>
+                <MaxBandwidth>40</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FCS945R_AP</SSID>
+                <Security>WPA2</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+                <Param key="ht_capab">[HT20][SHORT-GI-20]</Param>
+            </FixedParams>
+
             <Param key="interface">wlan0</Param>
             <Param key="driver">nl80211</Param>
             <Param key="ctrl_interface">/var/run/hostapd</Param>
             <Param key="ctrl_interface_group">0</Param>
-            <Param key="beacon_int">100</Param>
             <Param key="hw_mode">g</Param>
             <Param key="channel">6</Param>
             <Param key="ieee80211n">1</Param>
-            <Param key="ht_capab">[HT20][SHORT-GI-20]</Param>
         </APConfig>
     </Module>
 
@@ -101,15 +182,41 @@
         </StationConfig>
 
         <APConfig>
+            <Capabilities>
+                <Bands>2.4G</Bands>
+                <Modes>b,g,n</Modes>
+                <MaxBandwidth>40</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FCU741R_AP</SSID>
+                <Security>WPA2</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+                <Param key="ht_capab">[HT20][SHORT-GI-20]</Param>
+            </FixedParams>
+
             <Param key="interface">wlan0</Param>
             <Param key="driver">nl80211</Param>
             <Param key="ctrl_interface">/var/run/hostapd</Param>
             <Param key="ctrl_interface_group">0</Param>
-            <Param key="beacon_int">100</Param>
             <Param key="hw_mode">g</Param>
             <Param key="channel">6</Param>
             <Param key="ieee80211n">1</Param>
-            <Param key="ht_capab">[HT20][SHORT-GI-20]</Param>
         </APConfig>
     </Module>
 </WiFiTool>
