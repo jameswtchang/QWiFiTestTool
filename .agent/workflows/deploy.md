@@ -22,6 +22,12 @@ $env:CGO_ENABLED=0; $env:GOOS='linux'; $env:GOARCH='arm64'; go build -o wifi-too
 adb push wifi-tool /data/local/tmp/wifi-tool/wifi-tool
 ```
 
+1. 推送 XML 配置到開發板:
+
+```
+adb push assets\default_modules.xml /data/local/tmp/default_modules.xml
+```
+
 1. 設定執行權限:
 
 ```

@@ -89,7 +89,7 @@ func (e *APConfigEditor) loadDefaults() {
 		} else {
 			e.params.Mode = "n"
 		}
-		if caps.MaxBandwidth > 0 && caps.MaxBandwidth < e.params.Bandwidth {
+		if caps.MaxBandwidth > 0 {
 			e.params.Bandwidth = caps.MaxBandwidth
 		}
 	}

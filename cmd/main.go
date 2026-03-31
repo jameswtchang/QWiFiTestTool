@@ -53,6 +53,7 @@ func main() {
 			runDiagnosis(module)
 		case "2":
 			runConfigEditor(module, platformInfo)
+			continue
 		case "3":
 			runStationMode(module, binMgr, platformInfo)
 		case "4":
@@ -136,9 +137,8 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 // runConfigEditor runs the wpa_supplicant.conf editor
 func runConfigEditor(module *models.WiFiModule, platformInfo *sys.PlatformInfo) {
 	editor := config.NewWpaEditor(module, platformInfo)
-	if err := editor.Start(); err != nil {
+	if _, err := editor.Start(); err != nil {
 		ui.ShowError(err)
-		return
 	}
 }
 

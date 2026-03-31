@@ -219,4 +219,61 @@
             <Param key="ieee80211n">1</Param>
         </APConfig>
     </Module>
+
+    <!-- Quectel FCS961K-L (AIC8800 Chipset) -->
+    <Module id="quectel_fcs961kl">
+        <DisplayName>Quectel FCS961K-L (AIC8800)</DisplayName>
+        
+        <Kernel>
+            <KoName>aic8800_fdrv.ko</KoName>
+            <PreloadKo>aic8800_bsp.ko</PreloadKo>
+            <InsmodArgs></InsmodArgs>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>2.4G</Bands>
+                <Modes>b,g,n,ax</Modes>
+                <MaxBandwidth>40</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FCS961KL_AP</SSID>
+                <Security>WPA2</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+                <Param key="ht_capab">[HT40+][SHORT-GI-20][SHORT-GI-40]</Param>
+            </FixedParams>
+
+            <Param key="interface">wlan0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="ctrl_interface">/var/run/hostapd</Param>
+            <Param key="ctrl_interface_group">0</Param>
+            <Param key="hw_mode">g</Param>
+            <Param key="channel">6</Param>
+            <Param key="ieee80211n">1</Param>
+            <Param key="ieee80211ax">1</Param>
+        </APConfig>
+    </Module>
 </WiFiTool>

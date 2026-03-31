@@ -23,9 +23,25 @@ type WiFiModule struct {
 // KernelConfig contains kernel-level module parameters
 type KernelConfig struct {
 	KoName        string `xml:"KoName"`        // Kernel module filename (e.g., 8821cu.ko)
-	InsmodArgs    string `xml:"InsmodArgs"`    // Arguments for insmod command
-	Interface     string `xml:"Interface"`     // Network interface name (default: wlan0)
-	DriverBackend string `xml:"DriverBackend"` // Driver backend (default: nl80211)
+	PreloadKo     string `xml:"PreloadKo"`     // Prerequisite .ko files to load before KoName (comma-separated)
+	InsmodArgs    string `xml:"InsmodArgs"`     // Arguments for insmod command
+	Interface     string `xml:"Interface"`      // Network interface name (default: wlan0)
+	DriverBackend string `xml:"DriverBackend"`  // Driver backend (default: nl80211)
+}
+
+// GetPreloadKoList returns prerequisite ko files as a slice
+func (k *KernelConfig) GetPreloadKoList() []string {
+	if k.PreloadKo == "" {
+		return nil
+	}
+	parts := strings.Split(k.PreloadKo, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 // APConfig contains structured AP mode configuration

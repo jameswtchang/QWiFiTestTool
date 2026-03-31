@@ -16,11 +16,23 @@ import (
 // 2. System common paths
 // 3. Recursive search in /system/lib/modules/ and /lib/modules/
 func LoadDriver(module *models.WiFiModule) error {
+	// Load prerequisite ko files first (e.g., BSP driver before functional driver)
+	preloads := module.Kernel.GetPreloadKoList()
+	for _, preKo := range preloads {
+		fmt.Printf("[INFO] 載入前置驅動: %s\n", preKo)
+		if err := findAndInsmod(preKo, ""); err != nil {
+			return fmt.Errorf("前置驅動載入失敗 %s: %w", preKo, err)
+		}
+	}
+
+	// Load main driver
 	koName := module.Kernel.KoName
-	insmodArgs := module.Kernel.InsmodArgs
-
 	fmt.Printf("[INFO] 開始載入驅動: %s\n", koName)
+	return findAndInsmod(koName, module.Kernel.InsmodArgs)
+}
 
+// findAndInsmod searches for a .ko file using the three-tier strategy and loads it.
+func findAndInsmod(koName, args string) error {
 	// Get executable directory
 	exePath, err := os.Executable()
 	if err != nil {
@@ -28,11 +40,13 @@ func LoadDriver(module *models.WiFiModule) error {
 	}
 	exeDir := filepath.Dir(exePath)
 
-	// Tier 1: Check tool's directory
-	localPath := filepath.Join(exeDir, koName)
-	if fileExists(localPath) {
-		fmt.Printf("[INFO] 找到本地驅動: %s\n", localPath)
-		return insmodDriver(localPath, insmodArgs)
+	// Tier 1: Check tool's directory and its parent
+	for _, dir := range []string{exeDir, filepath.Dir(exeDir)} {
+		candidate := filepath.Join(dir, koName)
+		if fileExists(candidate) {
+			fmt.Printf("[INFO] 找到本地驅動: %s\n", candidate)
+			return insmodDriver(candidate, args)
+		}
 	}
 
 	// Tier 2: System common paths
@@ -46,7 +60,7 @@ func LoadDriver(module *models.WiFiModule) error {
 		candidatePath := filepath.Join(basePath, koName)
 		if fileExists(candidatePath) {
 			fmt.Printf("[INFO] 找到系統驅動: %s\n", candidatePath)
-			return insmodDriver(candidatePath, insmodArgs)
+			return insmodDriver(candidatePath, args)
 		}
 	}
 
@@ -65,7 +79,7 @@ func LoadDriver(module *models.WiFiModule) error {
 		foundPath, err := findKernelModule(dir, koName)
 		if err == nil && foundPath != "" {
 			fmt.Printf("[INFO] 找到驅動: %s\n", foundPath)
-			return insmodDriver(foundPath, insmodArgs)
+			return insmodDriver(foundPath, args)
 		}
 	}
 
@@ -87,6 +101,20 @@ func UnloadDriver(module *models.WiFiModule) error {
 	}
 
 	fmt.Printf("[SUCCESS] 已卸載驅動: %s\n", moduleName)
+
+	// Unload prerequisite ko files in reverse order
+	preloads := module.Kernel.GetPreloadKoList()
+	for i := len(preloads) - 1; i >= 0; i-- {
+		preModName := strings.TrimSuffix(filepath.Base(preloads[i]), ".ko")
+		fmt.Printf("[INFO] 卸載前置驅動: %s\n", preModName)
+		cmd := exec.Command(rmmodPath, preModName)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			fmt.Printf("[WARN] 前置驅動卸載失敗 %s: %s\n", preModName, string(output))
+		} else {
+			fmt.Printf("[SUCCESS] 已卸載前置驅動: %s\n", preModName)
+		}
+	}
+
 	return nil
 }
 

@@ -27,7 +27,8 @@ func NewWpaEditor(module *models.WiFiModule, platformInfo *sys.PlatformInfo) *Wp
 }
 
 // Start begins the interactive editing session
-func (e *WpaEditor) Start() error {
+// Returns (actionTaken, error) - actionTaken is false if user skipped editing
+func (e *WpaEditor) Start() (bool, error) {
 	fmt.Println("\n========== wpa_supplicant.conf 編輯器 ==========")
 
 	// Step 1: Detect config path
@@ -37,7 +38,7 @@ func (e *WpaEditor) Start() error {
 	// Step 2: Load or create config
 	content, err := e.loadOrCreateConfig()
 	if err != nil {
-		return fmt.Errorf("無法載入配置: %w", err)
+		return false, fmt.Errorf("無法載入配置: %w", err)
 	}
 
 	// Step 3: Display current config
@@ -48,27 +49,52 @@ func (e *WpaEditor) Start() error {
 	var response string
 	fmt.Scanln(&response)
 
-	if response == "y" || response == "Y" {
-		// Interactive edit
-		content, err = e.interactiveEdit(content)
-		if err != nil {
-			return fmt.Errorf("編輯失敗: %w", err)
-		}
+	if response != "y" && response != "Y" {
+		fmt.Println("[INFO] 未做任何修改")
+		return false, nil
 	}
 
-	// Step 5: Save config
-	if err := e.saveConfig(content); err != nil {
-		return fmt.Errorf("保存失敗: %w", err)
+	// Step 5: Interactive edit (menu-based)
+	newContent, err := e.interactiveEdit(content)
+	if err != nil {
+		return false, fmt.Errorf("編輯失敗: %w", err)
+	}
+
+	// Step 6: Show final config and ask to apply
+	fmt.Println("\n========== 編輯後的配置內容 ==========")
+	fmt.Println(newContent)
+	fmt.Println("======================================")
+
+	fmt.Print("\n是否要套用新的設定值覆蓋目前的系統配置? [y/N]: ")
+	fmt.Scanln(&response)
+
+	if response != "y" && response != "Y" {
+		fmt.Println("[INFO] 已放棄修改")
+		return false, nil
+	}
+
+	// Step 7: Save config
+	if err := e.saveConfig(newContent); err != nil {
+		return false, fmt.Errorf("保存失敗: %w", err)
 	}
 
 	fmt.Println("\n[SUCCESS] 配置已保存")
 
-	// Step 6: Restart network if needed
+	// Step 8: Read back and display the saved config
+	fmt.Println("\n========== 系統最新配置 ==========")
+	if savedData, err := os.ReadFile(e.configPath); err == nil {
+		fmt.Println(string(savedData))
+	} else {
+		fmt.Printf("[WARN] 無法讀取已保存的配置: %v\n", err)
+	}
+	fmt.Println("==================================")
+
+	// Step 9: Restart network if needed
 	if err := e.restartNetworkIfNeeded(); err != nil {
 		fmt.Printf("[WARN] 網路重啟失敗: %v\n", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // detectConfigPath detects the system wpa_supplicant.conf path
@@ -161,31 +187,103 @@ func (e *WpaEditor) displayConfig(content string) {
 	fmt.Println("==================================")
 }
 
-// interactiveEdit performs interactive parameter editing
+// interactiveEdit performs menu-based parameter editing
 func (e *WpaEditor) interactiveEdit(content string) (string, error) {
-	fmt.Println("\n========== 互動式參數編輯 ==========")
-	fmt.Println("請選擇要配置的參數：")
-
 	params := GetWpaParams()
 	configMap := parseConfig(content)
+	reader := bufio.NewReader(os.Stdin)
 
-	// Edit each parameter
-	for _, param := range params {
-		// Skip network parameter (handled separately)
-		if param.Key == "country" {
-			// Country might already be in config, skip for now
+	for {
+		// Display current config state
+		fmt.Println("\n========== 當前配置參數 ==========")
+		e.displayConfigMap(configMap)
+		fmt.Println("==================================")
+
+		// Display parameter menu
+		fmt.Println("\n========== 可編輯參數 ==========")
+		for i, param := range params {
+			if currentVal, exists := configMap[param.Key]; exists {
+				fmt.Printf("[%d] %-20s (當前: %s)\n", i+1, param.Key, currentVal)
+			} else {
+				fmt.Printf("[%d] %-20s (未設定)\n", i+1, param.Key)
+			}
+		}
+		fmt.Println("[0] 完成編輯")
+		fmt.Println("================================")
+		fmt.Print("選擇參數編號: ")
+
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		if input == "0" || input == "" {
+			break
+		}
+
+		var idx int
+		fmt.Sscanf(input, "%d", &idx)
+
+		if idx < 1 || idx > len(params) {
+			fmt.Println("[WARN] 無效選擇")
 			continue
 		}
 
-		value, shouldAdd := PromptParamEdit(param)
-		if shouldAdd {
+		param := params[idx-1]
+
+		// Show parameter details
+		fmt.Printf("\n=== %s ===\n", param.Key)
+		fmt.Printf("說明: %s\n", param.Description)
+		fmt.Printf("建議值: %v\n", param.SuggestedValues)
+		fmt.Printf("預設值: %s\n", param.DefaultValue)
+		fmt.Printf("範例: %s\n", param.Example)
+
+		if current, exists := configMap[param.Key]; exists {
+			fmt.Printf("當前值: %s\n", current)
+		}
+
+		fmt.Printf("\n請輸入值 (Enter=預設值 '%s', 'd'=刪除此參數): ", param.DefaultValue)
+		value, _ := reader.ReadString('\n')
+		value = strings.TrimSpace(value)
+
+		if value == "d" || value == "D" {
+			delete(configMap, param.Key)
+			fmt.Printf("[INFO] 已移除參數: %s\n", param.Key)
+		} else {
+			if value == "" {
+				value = param.DefaultValue
+			}
 			configMap[param.Key] = value
+			fmt.Printf("[INFO] 已設定 %s=%s\n", param.Key, value)
 		}
 	}
 
-	// Rebuild config with new values
 	newContent := rebuildConfig(content, configMap)
 	return newContent, nil
+}
+
+// displayConfigMap shows current config key-value pairs in order
+func (e *WpaEditor) displayConfigMap(configMap map[string]string) {
+	if len(configMap) == 0 {
+		fmt.Println("  (空)")
+		return
+	}
+
+	// Show known params first in order
+	params := GetWpaParams()
+	shown := make(map[string]bool)
+
+	for _, param := range params {
+		if val, exists := configMap[param.Key]; exists {
+			fmt.Printf("  %s=%s\n", param.Key, val)
+			shown[param.Key] = true
+		}
+	}
+
+	// Show remaining params (ctrl_interface, etc.)
+	for key, val := range configMap {
+		if !shown[key] {
+			fmt.Printf("  %s=%s\n", key, val)
+		}
+	}
 }
 
 // parseConfig parses config content into a map
@@ -222,7 +320,12 @@ func rebuildConfig(originalContent string, configMap map[string]string) string {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		// Keep comments and empty lines
+		// Skip old "# Additional parameters" markers to prevent accumulation
+		if trimmed == "# Additional parameters" {
+			continue
+		}
+
+		// Keep other comments and empty lines
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			sb.WriteString(line + "\n")
 			continue
@@ -232,23 +335,36 @@ func rebuildConfig(originalContent string, configMap map[string]string) string {
 		parts := strings.SplitN(trimmed, "=", 2)
 		if len(parts) == 2 {
 			key := parts[0]
-			if newValue, exists := configMap[key]; exists {
-				// Update with new value
-				sb.WriteString(fmt.Sprintf("%s=%s\n", key, newValue))
-				updatedKeys[key] = true
+			// Skip if this key was already written (duplicate in original file)
+			if updatedKeys[key] {
 				continue
 			}
+			if newValue, exists := configMap[key]; exists {
+				sb.WriteString(fmt.Sprintf("%s=%s\n", key, newValue))
+				updatedKeys[key] = true
+			}
+			// Key not in configMap → deleted, skip this line
+			continue
 		}
 
-		// Keep original line
+		// Keep non key=value lines (network block braces, etc.)
 		sb.WriteString(line + "\n")
 	}
 
-	// Second pass: add new parameters
-	sb.WriteString("\n# Additional parameters\n")
-	for key, value := range configMap {
+	// Second pass: add new parameters only if there are any
+	hasNew := false
+	for key := range configMap {
 		if !updatedKeys[key] {
-			sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+			hasNew = true
+			break
+		}
+	}
+	if hasNew {
+		sb.WriteString("\n# Additional parameters\n")
+		for key, value := range configMap {
+			if !updatedKeys[key] {
+				sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+			}
 		}
 	}
 
