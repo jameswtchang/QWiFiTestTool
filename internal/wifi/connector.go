@@ -219,11 +219,19 @@ func (c *Connector) startDaemon() error {
 		return fmt.Errorf("configPath is empty")
 	}
 
+	exec.Command("ip", "link", "set", iface, "down").Run()
+	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
+
 	args := []string{
 		"-i", iface,
 		"-D", driver,
 		"-c", c.configPath,
 		"-B",
+	}
+
+	// Add debug flag for s1g supplicant
+	if strings.Contains(c.wpaSupplicant, "_s1g") {
+		args = append(args, "-dd")
 	}
 
 	cmdStr := fmt.Sprintf("%s %s", c.wpaSupplicant, strings.Join(args, " "))
@@ -246,10 +254,13 @@ func (c *Connector) startDaemonForScan() error {
 	iface := c.module.Kernel.GetInterface()
 	driver := c.module.Kernel.GetDriverBackend()
 
+	exec.Command("ip", "link", "set", iface, "down").Run()
+	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
+
 	// Create minimal config for scanning
-	minimalConfig := fmt.Sprintf(`ctrl_interface=/var/run/wpa_supplicant
+	minimalConfig := fmt.Sprintf(`ctrl_interface=%s
 update_config=1
-`)
+`, c.ctrlInterface)
 	minimalConfigPath := "/tmp/wpa_scan.conf"
 	if err := os.WriteFile(minimalConfigPath, []byte(minimalConfig), 0644); err != nil {
 		return fmt.Errorf("無法建立最小配置檔: %w", err)
@@ -282,7 +293,7 @@ update_config=1
 // interactiveScanConnect performs scan and prompts user to connect
 func (c *Connector) interactiveScanConnect() (bool, error) {
 	// 1. Scan
-	scanner := NewScanner(c.wpaCliPath, c.module.Kernel.GetInterface())
+	scanner := NewScanner(c.wpaCliPath, c.ctrlInterface, c.module.Kernel.GetInterface())
 	networks, err := scanner.Scan()
 	if err != nil {
 		return false, fmt.Errorf("掃描失敗: %w (請確認 wpa_supplicant 已啟動)", err)
@@ -378,7 +389,7 @@ func (c *Connector) connectToNetwork(ssid, password string) error {
 		c.showConnectionInfo()
 	} else if !connected {
 		fmt.Println("\n⚠️  連接失敗，診斷資訊：")
-		statusCmd := exec.Command(c.wpaCliPath, "-i", iface, "status")
+		statusCmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
 		statusOutput, _ := statusCmd.Output()
 		c.diagnoseConnectionFailure(statusOutput, ssid, password)
 	} else {
@@ -397,8 +408,8 @@ func (c *Connector) Stop() error {
 	}
 
 	pkillPath := sys.FindCommand("pkill", "pkill")
-	cmd := exec.Command(pkillPath, "wpa_supplicant")
-	cmd.Run()
+	exec.Command(pkillPath, "wpa_supplicant").Run()
+	exec.Command(pkillPath, "wpa_supplicant_s1g").Run()
 
 	c.daemonStarted = false
 	fmt.Println("[INFO] wpa_supplicant 已停止")
@@ -477,7 +488,7 @@ func (c *Connector) diagnoseConnectionFailure(statusOutput []byte, ssid, passwor
 		reasons = append(reasons, "1. 密碼錯誤 - 請確認密碼是否正確")
 	}
 
-	cmd := exec.Command(c.wpaCliPath, "-i", iface, "signal_poll")
+	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "signal_poll")
 	if output, err := cmd.Output(); err == nil {
 		if strings.Contains(string(output), "RSSI=") {
 			reasons = append(reasons, "2. 信號太弱 - RSSI 值過低")

@@ -13,10 +13,10 @@ func (c *Connector) stopWpaSupplicant() {
 	fmt.Println("\n[INFO] 停止 wpa_supplicant daemon...")
 
 	// Try graceful stop via wpa_cli
-	terminateCmd := fmt.Sprintf("%s -i %s terminate", c.wpaCliPath, iface)
+	terminateCmd := fmt.Sprintf("%s -p %s -i %s terminate", c.wpaCliPath, c.ctrlInterface, iface)
 	fmt.Printf("[CMD] %s\n", terminateCmd)
 
-	cmd := exec.Command(c.wpaCliPath, "-i", iface, "terminate")
+	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "terminate")
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("[WARN] wpa_cli terminate 失敗: %v\n", err)
 	}
@@ -24,9 +24,10 @@ func (c *Connector) stopWpaSupplicant() {
 	time.Sleep(1 * time.Second)
 
 	// Force kill if still running
-	pkillCmd := "pkill -9 wpa_supplicant"
-	fmt.Printf("[CMD] %s\n", pkillCmd)
-	exec.Command("pkill", "-9", "wpa_supplicant").Run()
+	for _, proc := range []string{"wpa_supplicant", "wpa_supplicant_s1g"} {
+		fmt.Printf("[CMD] pkill -9 %s\n", proc)
+		exec.Command("pkill", "-9", proc).Run()
+	}
 
 	c.daemonStarted = false
 	fmt.Println("[INFO] wpa_supplicant 已停止")

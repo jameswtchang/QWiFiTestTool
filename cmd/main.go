@@ -41,6 +41,15 @@ func main() {
 	}
 
 	platformInfo := sys.DetectPlatform()
+
+	// Override socket path from module's StationConfig ctrl_interface if present
+	for _, p := range module.StationConfig {
+		if p.Key == "ctrl_interface" && p.Value != "" {
+			platformInfo.WpaSupplicantSocket = p.Value
+			break
+		}
+	}
+
 	platformInfo.Print()
 
 	// Step 4: Main loop
@@ -101,11 +110,16 @@ func runDiagnosis(module *models.WiFiModule) {
 
 // runStationMode runs Station mode workflow
 func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platformInfo *sys.PlatformInfo) {
+	supplicantPath := binMgr.GetWpaSupplicantPath()
+	if module.ID == "quectel_fgh200m" {
+		supplicantPath = "wpa_supplicant_s1g"
+	}
+
 	connector := wifi.NewConnector(
 		module,
-		binMgr.GetWpaSupplicantPath(),
+		supplicantPath,
 		platformInfo.WpaCliPath,
-		platformInfo.WpaSupplicantSocket,
+		platformInfo.WpaSupplicantSocket, // already overridden from StationConfig
 	)
 
 	keepRunning, err := connector.Start()
@@ -128,7 +142,6 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 	if response == "y" || response == "Y" {
 		fmt.Println("[INFO] 斷開連線...")
 		connector.Stop()
-		fmt.Println("[INFO] wpa_supplicant 已停止")
 	} else {
 		fmt.Println("[INFO] 保持連線，wpa_supplicant 持續運行")
 	}
@@ -157,9 +170,14 @@ func runAPConfigEditor(module *models.WiFiModule) {
 
 // runAPMode runs AP mode workflow
 func runAPMode(module *models.WiFiModule, binMgr *sys.BinaryManager) {
+	hostapdPath := binMgr.GetHostapdPath()
+	if module.ID == "quectel_fgh200m" {
+		hostapdPath = "hostapd_s1g"
+	}
+
 	hotspot := wifi.NewHotspot(
 		module,
-		binMgr.GetHostapdPath(),
+		hostapdPath,
 	)
 
 	if err := hotspot.Start(); err != nil {

@@ -82,7 +82,9 @@ func (e *APConfigEditor) loadDefaults() {
 	// Set mode based on capabilities
 	caps := e.module.APConfig.Capabilities
 	if caps != nil {
-		if caps.HasMode("ax") {
+		if caps.HasMode("ah") {
+			e.params.Mode = "ah"
+		} else if caps.HasMode("ax") {
 			e.params.Mode = "ax"
 		} else if caps.HasMode("ac") {
 			e.params.Mode = "ac"
@@ -91,6 +93,17 @@ func (e *APConfigEditor) loadDefaults() {
 		}
 		if caps.MaxBandwidth > 0 {
 			e.params.Bandwidth = caps.MaxBandwidth
+		}
+	}
+
+	// Try to get default CountryCode from FixedParams or Params
+	var allParams []models.Param
+	allParams = append(allParams, e.module.APConfig.FixedParams...)
+	allParams = append(allParams, e.module.APConfig.Params...)
+	for _, p := range allParams {
+		if p.Key == "country_code" {
+			e.params.CountryCode = p.Value
+			break
 		}
 	}
 }
@@ -194,7 +207,10 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 	}
 
 	// ieee80211 flags → Mode
-	if configMap["ieee80211ax"] == "1" {
+	if configMap["ieee80211ah"] == "1" {
+		e.params.Mode = "ah"
+		e.params.Band = "sub-GHz"
+	} else if configMap["ieee80211ax"] == "1" {
 		e.params.Mode = "ax"
 	} else if configMap["ieee80211ac"] == "1" {
 		e.params.Mode = "ac"
@@ -221,7 +237,9 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 		} else {
 			e.params.Security = "WPA2"
 		}
-		if v, ok := configMap["wpa_passphrase"]; ok {
+		if v, ok := configMap["sae_password"]; ok {
+			e.params.Password = v
+		} else if v, ok := configMap["wpa_passphrase"]; ok {
 			e.params.Password = v
 		}
 	} else {
@@ -236,7 +254,7 @@ func (e *APConfigEditor) showCurrentConfig() {
 	fmt.Printf("  %-12s %s\n", "國家碼:", e.params.CountryCode)
 	fmt.Printf("  %-12s %s\n", "AP類型:", e.params.APType)
 	fmt.Printf("  %-12s %s\n", "頻段:", e.params.Band)
-	fmt.Printf("  %-12s WiFi %s\n", "協議:", e.modeDisplayName(e.params.Mode))
+	fmt.Printf("  %-12s %s\n", "協議:", e.modeDisplayName(e.params.Mode))
 	fmt.Printf("  %-12s %dMHz\n", "頻寬:", e.params.Bandwidth)
 	fmt.Printf("  %-12s %d\n", "頻道:", e.params.Channel)
 	fmt.Printf("  %-12s %s\n", "SSID:", e.params.SSID)
@@ -249,12 +267,14 @@ func (e *APConfigEditor) showCurrentConfig() {
 
 func (e *APConfigEditor) modeDisplayName(mode string) string {
 	switch mode {
+	case "ah":
+		return "WiFi HaLow (IEEE 802.11ah)"
 	case "n":
-		return "4 (n)"
+		return "WiFi 4 (n)"
 	case "ac":
-		return "5 (ac)"
+		return "WiFi 5 (ac)"
 	case "ax":
-		return "6 (ax)"
+		return "WiFi 6 (ax)"
 	default:
 		return mode
 	}
@@ -405,6 +425,7 @@ func (e *APConfigEditor) editMode() {
 		id      string
 		display string
 	}{
+		{"ah", "WiFi HaLow (IEEE 802.11ah)"},
 		{"n", "WiFi 4 (n)"},
 		{"ac", "WiFi 5 (ac)"},
 		{"ax", "WiFi 6 (ax)"},
@@ -706,10 +727,14 @@ func (e *APConfigEditor) generateHostapd() string {
 
 	// Country
 	sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
-	sb.WriteString("ieee80211d=1\n")
+	if e.params.Band != "sub-GHz" {
+		sb.WriteString("ieee80211d=1\n")
+	}
 
 	// Band → hw_mode
 	if e.params.Band == "5G" {
+		sb.WriteString("hw_mode=a\n")
+	} else if e.params.Band == "sub-GHz" {
 		sb.WriteString("hw_mode=a\n")
 	} else {
 		sb.WriteString("hw_mode=g\n")
@@ -732,24 +757,26 @@ func (e *APConfigEditor) generateHostapd() string {
 	}
 
 	// Bandwidth → ht/vht capabilities
-	switch {
-	case e.params.Bandwidth >= 40:
-		htMode := e.calcHT40Mode()
-		sb.WriteString(fmt.Sprintf("ht_capab=[%s][SHORT-GI-20][SHORT-GI-40]\n", htMode))
-	default:
-		sb.WriteString("ht_capab=[HT20][SHORT-GI-20]\n")
-	}
-
-	if e.params.Bandwidth >= 80 && (e.params.Mode == "ac" || e.params.Mode == "ax") {
-		sb.WriteString("vht_oper_chwidth=1\n")
-		// Calculate VHT center frequency segment
-		centerCh := e.calcVHTCenterChannel()
-		if centerCh > 0 {
-			sb.WriteString(fmt.Sprintf("vht_oper_centr_freq_seg0_idx=%d\n", centerCh))
+	if e.params.Band != "sub-GHz" {
+		switch {
+		case e.params.Bandwidth >= 40:
+			htMode := e.calcHT40Mode()
+			sb.WriteString(fmt.Sprintf("ht_capab=[%s][SHORT-GI-20][SHORT-GI-40]\n", htMode))
+		default:
+			sb.WriteString("ht_capab=[HT20][SHORT-GI-20]\n")
 		}
-	}
 
-	sb.WriteString("wmm_enabled=1\n")
+		if e.params.Bandwidth >= 80 && (e.params.Mode == "ac" || e.params.Mode == "ax") {
+			sb.WriteString("vht_oper_chwidth=1\n")
+			// Calculate VHT center frequency segment
+			centerCh := e.calcVHTCenterChannel()
+			if centerCh > 0 {
+				sb.WriteString(fmt.Sprintf("vht_oper_centr_freq_seg0_idx=%d\n", centerCh))
+			}
+		}
+
+		sb.WriteString("wmm_enabled=1\n")
+	}
 
 	// Security
 	sb.WriteString("\n# Security\n")
@@ -761,7 +788,7 @@ func (e *APConfigEditor) generateHostapd() string {
 		sb.WriteString("rsn_pairwise=CCMP\n")
 	case "WPA3":
 		sb.WriteString("wpa=2\n")
-		sb.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", e.params.Password))
+		sb.WriteString(fmt.Sprintf("sae_password=%s\n", e.params.Password))
 		sb.WriteString("wpa_key_mgmt=SAE\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
 		sb.WriteString("ieee80211w=2\n")
@@ -774,7 +801,7 @@ func (e *APConfigEditor) generateHostapd() string {
 		sb.WriteString("\n# Fixed parameters\n")
 		for _, p := range e.module.APConfig.FixedParams {
 			// Skip params we already set
-			if p.Key == "ht_capab" || p.Key == "wmm_enabled" {
+			if p.Key == "ht_capab" || p.Key == "wmm_enabled" || p.Key == "country_code" {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("%s=%s\n", p.Key, p.Value))
@@ -792,9 +819,41 @@ func (e *APConfigEditor) generateDnsmasq() string {
 	sb.WriteString(fmt.Sprintf("# Module: %s\n", e.module.DisplayName))
 	sb.WriteString("# Generated by QWiFiTestTool\n\n")
 
-	iface := e.module.Kernel.GetInterface()
-	sb.WriteString(fmt.Sprintf("interface=%s\n", iface))
-	sb.WriteString("bind-interfaces\n")
+	sb.WriteString("user=root\n")
+	
+	// Helper to get dnsmasq params from both FixedParams and Params
+	getDnsmasqParam := func(key string) string {
+		for _, p := range e.module.APConfig.FixedParams {
+			if p.Key == key {
+				return p.Value
+			}
+		}
+		for _, p := range e.module.APConfig.Params {
+			if p.Key == key {
+				return p.Value
+			}
+		}
+		return ""
+	}
+
+	// Check if bind_interfaces is explicitly disabled
+	bindInterfaces := true
+	if getDnsmasqParam("dnsmasq_bind_interfaces") == "0" {
+		bindInterfaces = false
+	}
+
+	if bindInterfaces {
+		iface := e.module.Kernel.GetInterface()
+		sb.WriteString(fmt.Sprintf("interface=%s\n", iface))
+	}
+
+	if net := e.module.APConfig.Network; net != nil && net.Gateway != "" {
+		sb.WriteString(fmt.Sprintf("listen-address=%s\n", net.Gateway))
+	}
+
+	if bindInterfaces {
+		sb.WriteString("bind-interfaces\n")
+	}
 
 	// Network config from XML or defaults
 	gateway := "192.168.50.1"
@@ -817,19 +876,27 @@ func (e *APConfigEditor) generateDnsmasq() string {
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("\n# DHCP settings\n"))
+	sb.WriteString("\n# DHCP settings\n")
 	sb.WriteString(fmt.Sprintf("dhcp-range=%s,%s,12h\n", dhcpStart, dhcpEnd))
-	sb.WriteString(fmt.Sprintf("dhcp-option=option:router,%s\n", gateway))
-	sb.WriteString(fmt.Sprintf("dhcp-option=option:netmask,%s\n", netmask))
-	sb.WriteString("dhcp-option=option:dns-server,8.8.8.8,8.8.4.4\n")
+	
+	// Check custom dnsmasq_server in XML
+	dnsmasqServer := getDnsmasqParam("dnsmasq_server")
 
-	sb.WriteString(fmt.Sprintf("\n# DNS settings\n"))
-	sb.WriteString("server=8.8.8.8\n")
-	sb.WriteString("server=8.8.4.4\n")
+	if dnsmasqServer != "" {
+		sb.WriteString(fmt.Sprintf("server=%s\n", dnsmasqServer))
+	} else {
+		// Only write default router/netmask options and 8.8.8.8 if no custom server logic is defined
+		sb.WriteString(fmt.Sprintf("dhcp-option=option:router,%s\n", gateway))
+		sb.WriteString(fmt.Sprintf("dhcp-option=option:netmask,%s\n", netmask))
+		sb.WriteString("dhcp-option=option:dns-server,8.8.8.8,8.8.4.4\n")
+		sb.WriteString("\n# DNS settings\n")
+		sb.WriteString("server=8.8.8.8\n")
+		sb.WriteString("server=8.8.4.4\n")
 
-	sb.WriteString(fmt.Sprintf("\n# Logging\n"))
-	sb.WriteString("log-queries\n")
-	sb.WriteString("log-dhcp\n")
+		sb.WriteString("\n# Logging\n")
+		sb.WriteString("log-queries\n")
+		sb.WriteString("log-dhcp\n")
+	}
 
 	return sb.String()
 }

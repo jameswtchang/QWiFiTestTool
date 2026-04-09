@@ -50,7 +50,6 @@ func detectAndroidWpaSocket() string {
 
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
-			fmt.Printf("[INFO] Detected Android wpa_supplicant socket: %s\n", path)
 			return path
 		}
 	}
@@ -71,7 +70,6 @@ func detectLinuxWpaSocket() string {
 
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
-			fmt.Printf("[INFO] Detected Linux wpa_supplicant socket: %s\n", path)
 			return path
 		}
 	}
@@ -98,5 +96,5 @@ func (pi *PlatformInfo) Print() {
 	fmt.Printf("平台: %s\n", pi.Platform)
 	fmt.Printf("wpa_supplicant Socket: %s\n", pi.WpaSupplicantSocket)
 	fmt.Printf("wpa_cli 路徑: %s\n", pi.WpaCliPath)
-	fmt.Println("==============================\n")
+	fmt.Println("==============================")
 }

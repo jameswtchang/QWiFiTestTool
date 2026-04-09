@@ -11,7 +11,7 @@ import (
 func (c *Connector) checkConnectionStatus() (bool, string) {
 	iface := c.module.Kernel.GetInterface()
 
-	cmd := exec.Command(c.wpaCliPath, "-i", iface, "status")
+	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
 	output, err := cmd.Output()
 	if err != nil {
 		return false, ""
@@ -40,7 +40,7 @@ func (c *Connector) checkConnectionStatus() (bool, string) {
 func (c *Connector) disconnect() error {
 	iface := c.module.Kernel.GetInterface()
 
-	cmd := exec.Command(c.wpaCliPath, "-i", iface, "disconnect")
+	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "disconnect")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("斷開連線失敗: %w", err)
 	}
@@ -89,7 +89,7 @@ func (c *Connector) showConnectionInfo() {
 	fmt.Println("\n========== 連線資訊 ==========")
 
 	// Get wpa_supplicant status
-	cmd := exec.Command(c.wpaCliPath, "-i", iface, "status")
+	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
 	output, err := cmd.Output()
 	if err == nil {
 		statusStr := string(output)

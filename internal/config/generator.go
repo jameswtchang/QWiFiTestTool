@@ -23,9 +23,16 @@ func GenerateWpaSupplicantConfig(module *models.WiFiModule, ctrlInterface, ssid,
 
 	// Global parameters from XML
 	paramsMap := models.ParamsToMap(module.StationConfig)
+	var networkKeyMgmt string
+
 	for key, value := range paramsMap {
 		// Skip ctrl_interface if already set
 		if key == "ctrl_interface" && ctrlInterface != "" {
+			continue
+		}
+		// Extract network-specific key_mgmt
+		if key == "network_key_mgmt" {
+			networkKeyMgmt = value
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
@@ -39,6 +46,9 @@ func GenerateWpaSupplicantConfig(module *models.WiFiModule, ctrlInterface, ssid,
 
 		if password != "" {
 			sb.WriteString(fmt.Sprintf("    psk=\"%s\"\n", password))
+			if networkKeyMgmt != "" {
+				sb.WriteString(fmt.Sprintf("    key_mgmt=%s\n", networkKeyMgmt))
+			}
 		} else {
 			sb.WriteString("    key_mgmt=NONE\n")
 		}
@@ -70,6 +80,9 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 	if band == "5G" || band == "5g" {
 		sb.WriteString("hw_mode=a\n")
 		sb.WriteString("channel=36\n")
+	} else if band == "sub-GHz" {
+		sb.WriteString("hw_mode=a\n")
+		sb.WriteString(fmt.Sprintf("channel=%d\n", module.APConfig.APProfile.Channel))
 	} else {
 		sb.WriteString("hw_mode=g\n")
 		sb.WriteString("channel=6\n")
@@ -78,17 +91,28 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 	// Security settings
 	if password != "" {
 		sb.WriteString("wpa=2\n")
-		sb.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", password))
-		sb.WriteString("wpa_key_mgmt=WPA-PSK\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
+		if module.APConfig.APProfile.Security == "WPA3" {
+			sb.WriteString(fmt.Sprintf("sae_password=%s\n", password))
+			sb.WriteString("wpa_key_mgmt=SAE\n")
+			sb.WriteString("ieee80211w=2\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", password))
+			sb.WriteString("wpa_key_mgmt=WPA-PSK\n")
+		}
 	}
 
 	// Additional parameters from XML
-	paramsMap := models.ParamsToMap(module.APConfig.Params)
+	var allParams []models.Param
+	allParams = append(allParams, module.APConfig.FixedParams...)
+	allParams = append(allParams, module.APConfig.Params...)
+
+	paramsMap := models.ParamsToMap(allParams)
 	for key, value := range paramsMap {
 		// Skip parameters we've already set
 		if key == "interface" || key == "driver" || key == "ssid" ||
-			key == "hw_mode" || key == "channel" {
+			key == "hw_mode" || key == "channel" || key == "wpa" ||
+			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_key_mgmt" || key == "ieee80211w" {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
@@ -133,23 +157,25 @@ func GenerateDnsmasqConfig(module *models.WiFiModule, cfg DnsmasqConfig) string 
 	sb.WriteString(fmt.Sprintf("# Generated for module: %s\n", module.DisplayName))
 	sb.WriteString("# Generated at: " + getCurrentTime() + "\n\n")
 
-	// Interface binding
+	// Interface and binding
+	sb.WriteString("user=root\n")
 	sb.WriteString(fmt.Sprintf("interface=%s\n", cfg.Interface))
-	sb.WriteString(fmt.Sprintf("bind-interfaces\n"))
+	sb.WriteString(fmt.Sprintf("listen-address=%s\n", cfg.GatewayIP))
+	sb.WriteString("bind-interfaces\n")
 
 	// DHCP settings
-	sb.WriteString(fmt.Sprintf("\n# DHCP settings\n"))
+	sb.WriteString("\n# DHCP settings\n")
 	sb.WriteString(fmt.Sprintf("dhcp-range=%s\n", cfg.DHCPRange))
 	sb.WriteString(fmt.Sprintf("dhcp-option=option:router,%s\n", cfg.GatewayIP))
 	sb.WriteString(fmt.Sprintf("dhcp-option=option:netmask,%s\n", cfg.SubnetMask))
 	sb.WriteString(fmt.Sprintf("dhcp-option=option:dns-server,%s\n", cfg.DNSServer))
 
 	// DNS settings
-	sb.WriteString(fmt.Sprintf("\n# DNS settings\n"))
+	sb.WriteString("\n# DNS settings\n")
 	sb.WriteString(fmt.Sprintf("server=%s\n", cfg.DNSServer))
 
 	// Logging
-	sb.WriteString(fmt.Sprintf("\n# Logging\n"))
+	sb.WriteString("\n# Logging\n")
 	sb.WriteString("log-queries\n")
 	sb.WriteString("log-dhcp\n")
 

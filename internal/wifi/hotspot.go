@@ -249,7 +249,20 @@ func (h *Hotspot) startServices() error {
 // setupInterfaceIP sets the IP address on the wireless interface
 func (h *Hotspot) setupInterfaceIP() error {
 	iface := h.module.Kernel.GetInterface()
-	gatewayIP := "192.168.50.1/24"
+
+	// Read gateway from XML Network config, fallback to default
+	gateway := "192.168.50.1"
+	netmask := 24
+	if net := h.module.APConfig.Network; net != nil && net.Gateway != "" {
+		gateway = net.Gateway
+		// Derive prefix length from netmask
+		if net.Netmask == "255.255.255.0" {
+			netmask = 24
+		} else if net.Netmask == "255.255.0.0" {
+			netmask = 16
+		}
+	}
+	gatewayIP := fmt.Sprintf("%s/%d", gateway, netmask)
 
 	// Bring interface up
 	upCmd := exec.Command("ip", "link", "set", iface, "up")
@@ -355,10 +368,11 @@ func (h *Hotspot) showAPInfo() {
 	fmt.Printf("  驅動:     %s\n", configMap["driver"])
 	fmt.Printf("  SSID:     %s\n", configMap["ssid"])
 
-	hwMode := configMap["hw_mode"]
 	channel := configMap["channel"]
 	band := "2.4GHz"
-	if hwMode == "a" {
+	if configMap["ieee80211ah"] == "1" {
+		band = "Sub-GHz (802.11ah HaLow)"
+	} else if configMap["hw_mode"] == "a" {
 		band = "5GHz"
 	}
 	fmt.Printf("  頻段:     %s (channel %s)\n", band, channel)
@@ -377,13 +391,25 @@ func (h *Hotspot) showAPInfo() {
 	}
 	fmt.Printf("  安全性:   %s\n", security)
 
-	// DHCP info
-	fmt.Printf("  閘道 IP:  192.168.50.1\n")
-	fmt.Printf("  DHCP:     192.168.50.10 - 192.168.50.100\n")
-
 	if configMap["country_code"] != "" {
 		fmt.Printf("  國家代碼: %s\n", configMap["country_code"])
 	}
+
+	// Read DHCP info from dnsmasq.conf
+	gateway := "N/A"
+	dhcpRange := "N/A"
+	if dnsData, err := os.ReadFile(h.dnsmasqConfig); err == nil {
+		for _, line := range strings.Split(string(dnsData), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "listen-address=") {
+				gateway = strings.TrimPrefix(line, "listen-address=")
+			} else if strings.HasPrefix(line, "dhcp-range=") {
+				dhcpRange = strings.TrimPrefix(line, "dhcp-range=")
+			}
+		}
+	}
+	fmt.Printf("  閘道 IP:  %s\n", gateway)
+	fmt.Printf("  DHCP:     %s\n", dhcpRange)
 
 	// Show iw interface details
 	ShowInterfaceDetail(h.module.Kernel.GetInterface())
@@ -425,7 +451,10 @@ func (h *Hotspot) Stop() error {
 	}
 
 	// Kill any remaining system-wide instances
+	exec.Command("killall", "-9", "wpa_supplicant").Run()
+	exec.Command("killall", "-9", "wpa_supplicant_s1g").Run()
 	exec.Command("killall", "-9", "hostapd").Run()
+	exec.Command("killall", "-9", "hostapd_s1g").Run()
 	exec.Command("killall", "-9", "dnsmasq").Run()
 
 	// Tear down the wireless interface to fully remove the AP
@@ -435,7 +464,7 @@ func (h *Hotspot) Stop() error {
 	fmt.Printf("[CMD] ip link set %s down\n", iface)
 	exec.Command("ip", "link", "set", iface, "down").Run()
 
-	fmt.Println("[INFO] hostapd 和 dnsmasq 已停止，介面已關閉")
+	fmt.Printf("[INFO] 已停止 hostapd/dnsmasq，介面 %s 已關閉\n", iface)
 
 	return nil
 }

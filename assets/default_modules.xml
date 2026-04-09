@@ -276,4 +276,137 @@
             <Param key="ieee80211ax">1</Param>
         </APConfig>
     </Module>
+    <!-- Quectel FGH200M (Morse Micro Chipset) -->
+    <Module id="quectel_fgh200m">
+        <DisplayName>Quectel FGH200M (Morse Micro)</DisplayName>
+        
+        <Kernel>
+            <KoName>morse.ko</KoName>
+            <PreloadKo>dot11ah.ko</PreloadKo>
+            <InsmodArgs>country=US</InsmodArgs>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant_s1g</Param>
+            <Param key="pmf">2</Param>
+            <Param key="sae_pwe">1</Param>
+            <Param key="network_key_mgmt">SAE</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>sub-GHz</Bands>
+                <Modes>ah</Modes>
+                <MaxBandwidth>8</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>true</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>Quectel-halow-fgh200m</SSID>
+                <Security>WPA3</Security>
+                <Band>sub-GHz</Band>
+                <Channel>40</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.11.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.11.2</DHCPStart>
+                <DHCPEnd>192.168.11.20</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="ctrl_interface">/var/run/hostapd_s1g</Param>
+                <Param key="country_code">AU</Param>
+                <Param key="ieee80211ah">1</Param>
+                <Param key="op_class">70</Param>
+                <Param key="s1g_prim_chwidth">1</Param>
+                <Param key="s1g_prim_1mhz_chan_index">0</Param>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">1</Param>
+                <Param key="ap_max_inactivity">65536</Param>
+                <Param key="s1g_capab">[SHORT-GI-ALL]</Param>
+                <Param key="wnm_sleep_mode">1</Param>
+                <Param key="sae_pwe">1</Param>
+                <!-- TX queue parameters -->
+                <Param key="tx_queue_data3_aifs">7</Param>
+                <Param key="tx_queue_data3_cwmin">15</Param>
+                <Param key="tx_queue_data3_cwmax">1023</Param>
+                <Param key="tx_queue_data3_burst">15.0</Param>
+                <Param key="tx_queue_data2_aifs">3</Param>
+                <Param key="tx_queue_data2_cwmin">15</Param>
+                <Param key="tx_queue_data2_cwmax">1023</Param>
+                <Param key="tx_queue_data2_burst">15.0</Param>
+                <Param key="tx_queue_data1_aifs">2</Param>
+                <Param key="tx_queue_data1_cwmin">7</Param>
+                <Param key="tx_queue_data1_cwmax">15</Param>
+                <Param key="tx_queue_data1_burst">15.0</Param>
+                <Param key="tx_queue_data0_aifs">2</Param>
+                <Param key="tx_queue_data0_cwmin">3</Param>
+                <Param key="tx_queue_data0_cwmax">7</Param>
+                <Param key="tx_queue_data0_burst">15.0</Param>
+
+                <!-- WMM parameters -->
+                <Param key="wmm_ac_bk_aifs">7</Param>
+                <Param key="wmm_ac_bk_cwmin">4</Param>
+                <Param key="wmm_ac_bk_cwmax">10</Param>
+                <Param key="wmm_ac_bk_txop_limit">469</Param>
+                <Param key="wmm_ac_bk_acm">0</Param>
+                <Param key="wmm_ac_be_aifs">3</Param>
+                <Param key="wmm_ac_be_cwmin">4</Param>
+                <Param key="wmm_ac_be_cwmax">10</Param>
+                <Param key="wmm_ac_be_txop_limit">469</Param>
+                <Param key="wmm_ac_be_acm">0</Param>
+                <Param key="wmm_ac_vi_aifs">2</Param>
+                <Param key="wmm_ac_vi_cwmin">3</Param>
+                <Param key="wmm_ac_vi_cwmax">4</Param>
+                <Param key="wmm_ac_vi_txop_limit">469</Param>
+                <Param key="wmm_ac_vi_acm">0</Param>
+                <Param key="wmm_ac_vo_aifs">2</Param>
+                <Param key="wmm_ac_vo_cwmin">2</Param>
+                <Param key="wmm_ac_vo_cwmax">3</Param>
+                <Param key="wmm_ac_vo_txop_limit">469</Param>
+                <Param key="wmm_ac_vo_acm">0</Param>
+            </FixedParams>
+
+
+            <!-- dnsmasq params -->
+            <Param key="dnsmasq_user">root</Param>
+            <Param key="dnsmasq_bind_interfaces">0</Param>
+            <Param key="dnsmasq_listen_address">192.168.11.1</Param>
+            <Param key="dnsmasq_server">/google/8.8.8.8</Param>
+        </APConfig>
+
+        <MeshConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant_s1g</Param>
+            <Param key="update_config">1</Param>
+            <Param key="ap_scan">1</Param>
+            <Param key="mesh_max_inactivity">30</Param>
+            <Param key="max_peer_links">10</Param>
+            
+            <!-- Mesh Network Parameters -->
+            <Param key="ssid">"Quectel_FGH200M_Mesh"</Param>
+            <Param key="key_mgmt">SAE</Param>
+            <Param key="psk">"12345678"</Param>
+            <Param key="mode">5</Param>
+            <Param key="channel">28</Param>
+            <Param key="country">"US"</Param>
+            <Param key="op_class">71</Param>
+            <Param key="s1g_prim_chwidth">1</Param>
+            <Param key="s1g_prim_1mhz_chan_index">0</Param>
+            <Param key="beacon_int">1000</Param>
+            <Param key="dtim_period">1</Param>
+            <Param key="ieee80211w">2</Param>
+            <Param key="dot11MeshHWMPRootMode">0</Param>
+            <Param key="dot11MeshGateAnnouncements">0</Param>
+            <Param key="mbca_config">3</Param>
+            <Param key="mbca_min_beacon_gap_ms">25</Param>
+            <Param key="mbca_tbtt_adj_interval_sec">60</Param>
+            <Param key="dot11MeshBeaconTimingReportInterval">15</Param>
+            <Param key="mbss_start_scan_duration_ms">3072</Param>
+        </MeshConfig>
+    </Module>
 </WiFiTool>

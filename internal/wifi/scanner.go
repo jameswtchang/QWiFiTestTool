@@ -17,17 +17,18 @@ type ScanResult struct {
 	Flags     string // Security and capability flags
 }
 
-// Scanner handles WiFi scanning operations
 type Scanner struct {
 	wpaCliPath string
-	ctrlIface  string
+	socketPath string
+	iface      string
 }
 
 // NewScanner creates a new scanner instance
-func NewScanner(wpaCliPath, ctrlInterface string) *Scanner {
+func NewScanner(wpaCliPath, socketPath, iface string) *Scanner {
 	return &Scanner{
 		wpaCliPath: wpaCliPath,
-		ctrlIface:  ctrlInterface,
+		socketPath: socketPath,
+		iface:      iface,
 	}
 }
 
@@ -53,7 +54,7 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 
 // execWpaCli executes a wpa_cli command
 func (s *Scanner) execWpaCli(command string) error {
-	args := []string{"-i", s.ctrlIface, command}
+	args := []string{"-p", s.socketPath, "-i", s.iface, command}
 	cmd := exec.Command(s.wpaCliPath, args...)
 
 	var stderr bytes.Buffer
@@ -68,7 +69,7 @@ func (s *Scanner) execWpaCli(command string) error {
 
 // execWpaCliOutput executes a wpa_cli command and returns output
 func (s *Scanner) execWpaCliOutput(command string) (string, error) {
-	args := []string{"-i", s.ctrlIface, command}
+	args := []string{"-p", s.socketPath, "-i", s.iface, command}
 	cmd := exec.Command(s.wpaCliPath, args...)
 
 	output, err := cmd.Output()
