@@ -123,13 +123,13 @@ func (e *APConfigEditor) Start() error {
 		e.showCurrentConfig()
 
 		fmt.Println("\n[1] 修改當前配置")
-		fmt.Println("[2] 重新生成 (使用 XML 預設值)")
+		fmt.Println("[2] 捨棄舊設定，載入模組預設值")
 		fmt.Println("[0] 返回主選單")
 		fmt.Print("選擇: ")
 
 		switch e.readLine() {
 		case "1":
-			e.editParams() // 直接進入參數編輯
+			// 什麼都不做，繼承已解析的舊設定進入迴圈
 		case "2":
 			e.loadDefaults()
 			fmt.Println("[INFO] 已載入 XML 預設配置")
@@ -145,7 +145,7 @@ func (e *APConfigEditor) Start() error {
 	for {
 		e.showCurrentConfig()
 
-		fmt.Println("\n[1] 修改參數  [2] 生成配置  [0] 返回主選單")
+		fmt.Println("\n[1] 修改參數  [2] 預覽並寫入系統  [3] 恢復模組預設值  [0] 返回主選單")
 		fmt.Print("選擇操作: ")
 
 		input := e.readLine()
@@ -157,6 +157,9 @@ func (e *APConfigEditor) Start() error {
 			if err := e.generateAndPreview(); err != nil {
 				fmt.Printf("\n❌ 錯誤: %v\n", err)
 			}
+		case "3":
+			e.loadDefaults()
+			fmt.Println("[INFO] 已恢復此模組的預設值")
 		case "0":
 			return nil
 		default:
@@ -745,6 +748,8 @@ func (e *APConfigEditor) generateHostapd() string {
 
 	// Mode → ieee80211 flags
 	switch e.params.Mode {
+	case "ah":
+		sb.WriteString("ieee80211ah=1\n")
 	case "ax":
 		sb.WriteString("ieee80211ax=1\n")
 		sb.WriteString("ieee80211ac=1\n")
