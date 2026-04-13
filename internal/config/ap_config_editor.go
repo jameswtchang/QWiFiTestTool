@@ -250,7 +250,7 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 
 // showCurrentConfig displays the current parameter state
 func (e *APConfigEditor) showCurrentConfig() {
-	fmt.Println("\n========== 當前配置 ==========")
+	fmt.Println("\n========== 當前配置 (Hostapd) ==========")
 	fmt.Printf("  %-12s %s\n", "國家碼:", e.params.CountryCode)
 	fmt.Printf("  %-12s %s\n", "AP類型:", e.params.APType)
 	fmt.Printf("  %-12s %s\n", "頻段:", e.params.Band)
@@ -262,7 +262,27 @@ func (e *APConfigEditor) showCurrentConfig() {
 	if e.params.Security != "Open" {
 		fmt.Printf("  %-12s %s\n", "密碼:", e.params.Password)
 	}
-	fmt.Println("==============================")
+
+	gateway := "192.168.50.1"
+	dhcpStart := "192.168.50.100"
+	dhcpEnd := "192.168.50.200"
+	
+	if net := e.module.APConfig.Network; net != nil {
+		if net.Gateway != "" {
+			gateway = net.Gateway
+		}
+		if net.DHCPStart != "" {
+			dhcpStart = net.DHCPStart
+		}
+		if net.DHCPEnd != "" {
+			dhcpEnd = net.DHCPEnd
+		}
+	}
+
+	fmt.Println("\n========== 當前配置 (Dnsmasq) ==========")
+	fmt.Printf("  %-12s %s\n", "Gateway:", gateway)
+	fmt.Printf("  %-12s %s - %s\n", "DHCP Range:", dhcpStart, dhcpEnd)
+	fmt.Println("========================================")
 }
 
 func (e *APConfigEditor) modeDisplayName(mode string) string {
@@ -597,14 +617,22 @@ func (e *APConfigEditor) editPassword() {
 		return
 	}
 
-	fmt.Printf("輸入密碼 [當前: %s]: ", e.params.Password)
-	input := e.readLine()
-	if input != "" {
-		if len(input) < 8 {
-			fmt.Println("⚠ WPA 密碼建議至少 8 字元")
+	for {
+		fmt.Printf("輸入密碼 [當前: %s]: ", e.params.Password)
+		input := e.readLine()
+		
+		if input == "" {
+			break
 		}
+
+		if len(input) < 8 || len(input) > 63 {
+			fmt.Println("❌ 錯誤: WPA 密碼長度必須介於 8 到 63 個字元之間")
+			continue
+		}
+
 		e.params.Password = input
 		fmt.Printf("✓ 密碼已更新\n")
+		break
 	}
 }
 
@@ -639,48 +667,6 @@ func (e *APConfigEditor) generateAndPreview() error {
 	hostapdPath := "/etc/hostapd.conf"
 	dnsmasqPath := "/etc/dnsmasq.conf"
 
-	// Check if files already exist
-	hostapdExists := fileExists(hostapdPath)
-	dnsmasqExists := fileExists(dnsmasqPath)
-
-	if hostapdExists || dnsmasqExists {
-		fmt.Println("\n⚠ 系統設定檔已存在:")
-		if hostapdExists {
-			fmt.Printf("  - %s\n", hostapdPath)
-		}
-		if dnsmasqExists {
-			fmt.Printf("  - %s\n", dnsmasqPath)
-		}
-
-		fmt.Println("\n[1] 載入現有檔案 (Load Existing)")
-		fmt.Println("[2] 重新生成並覆蓋 (Regenerate)")
-		fmt.Println("[0] 取消")
-		fmt.Print("選擇: ")
-
-		switch e.readLine() {
-		case "1":
-			// Load existing files
-			if hostapdExists {
-				data, err := os.ReadFile(hostapdPath)
-				if err == nil {
-					hostapdContent = string(data)
-				}
-			}
-			if dnsmasqExists {
-				data, err := os.ReadFile(dnsmasqPath)
-				if err == nil {
-					dnsmasqContent = string(data)
-				}
-			}
-		case "2":
-			// Use generated content (already in variables)
-		case "0":
-			return nil
-		default:
-			return nil
-		}
-	}
-
 	// Show preview
 	fmt.Println("\n╔═══════════════════════════════════════════════════╗")
 	fmt.Println("║              hostapd.conf 預覽                    ║")
@@ -692,8 +678,22 @@ func (e *APConfigEditor) generateAndPreview() error {
 	fmt.Println("╚═══════════════════════════════════════════════════╝")
 	fmt.Println(dnsmasqContent)
 
+	// Check if files already exist
+	hostapdExists := fileExists(hostapdPath)
+	dnsmasqExists := fileExists(dnsmasqPath)
+
+	if hostapdExists || dnsmasqExists {
+		fmt.Println("\n⚠ 注意: 系統配置檔已存在，寫入將會覆蓋舊有設定:")
+		if hostapdExists {
+			fmt.Printf("  - %s\n", hostapdPath)
+		}
+		if dnsmasqExists {
+			fmt.Printf("  - %s\n", dnsmasqPath)
+		}
+	}
+
 	// Prompt to save
-	fmt.Printf("\n是否儲存至系統配置? (%s, %s) [y/N]: ", hostapdPath, dnsmasqPath)
+	fmt.Printf("\n確認寫入系統配置? [y/N]: ")
 	if response := e.readLine(); response == "y" || response == "Y" {
 		if err := os.WriteFile(hostapdPath, []byte(hostapdContent), 0644); err != nil {
 			return fmt.Errorf("寫入 %s 失敗: %w", hostapdPath, err)

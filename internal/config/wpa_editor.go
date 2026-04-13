@@ -16,6 +16,7 @@ type WpaEditor struct {
 	module       *models.WiFiModule
 	platformInfo *sys.PlatformInfo
 	configPath   string
+	reader       *bufio.Reader
 }
 
 // NewWpaEditor creates a new WPA configuration editor
@@ -23,6 +24,7 @@ func NewWpaEditor(module *models.WiFiModule, platformInfo *sys.PlatformInfo) *Wp
 	return &WpaEditor{
 		module:       module,
 		platformInfo: platformInfo,
+		reader:       bufio.NewReader(os.Stdin),
 	}
 }
 
@@ -44,20 +46,31 @@ func (e *WpaEditor) Start() (bool, error) {
 	// Step 3: Display current config
 	e.displayConfig(content)
 
-	// Step 4: Ask if user wants to edit
-	fmt.Print("\n是否編輯配置? [y/N]: ")
-	var response string
-	fmt.Scanln(&response)
+	// Step 4: Ask user for action
+	fmt.Println("\n請選擇操作:")
+	fmt.Println("[1] 修改當前配置")
+	fmt.Println("[2] 重新生成 (使用 XML 預設值)")
+	fmt.Println("[0] 退出不修改")
+	fmt.Print("選擇: ")
 
-	if response != "y" && response != "Y" {
+	input, _ := e.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	var newContent string
+
+	if input == "1" {
+		// Step 5: Interactive edit
+		var err error
+		newContent, err = e.interactiveEdit(content)
+		if err != nil {
+			return false, fmt.Errorf("編輯失敗: %w", err)
+		}
+	} else if input == "2" {
+		newContent = e.generateDefaultConfig()
+		fmt.Println("[INFO] 已載入 XML 預設配置")
+	} else {
 		fmt.Println("[INFO] 未做任何修改")
 		return false, nil
-	}
-
-	// Step 5: Interactive edit (menu-based)
-	newContent, err := e.interactiveEdit(content)
-	if err != nil {
-		return false, fmt.Errorf("編輯失敗: %w", err)
 	}
 
 	// Step 6: Show final config and ask to apply
@@ -66,7 +79,8 @@ func (e *WpaEditor) Start() (bool, error) {
 	fmt.Println("======================================")
 
 	fmt.Print("\n是否要套用新的設定值覆蓋目前的系統配置? [y/N]: ")
-	fmt.Scanln(&response)
+	response, _ := e.reader.ReadString('\n')
+	response = strings.TrimSpace(response)
 
 	if response != "y" && response != "Y" {
 		fmt.Println("[INFO] 已放棄修改")
@@ -191,7 +205,7 @@ func (e *WpaEditor) displayConfig(content string) {
 func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 	params := GetWpaParams()
 	configMap := parseConfig(content)
-	reader := bufio.NewReader(os.Stdin)
+	reader := e.reader
 
 	for {
 		// Display current config state
@@ -403,8 +417,8 @@ func (e *WpaEditor) restartNetworkIfNeeded() error {
 	fmt.Println("[INFO] wpa_supplicant 正在運行")
 	fmt.Print("是否重啟網路介面以套用新配置? [y/N]: ")
 
-	var response string
-	fmt.Scanln(&response)
+	response, _ := e.reader.ReadString('\n')
+	response = strings.TrimSpace(response)
 
 	if response != "y" && response != "Y" {
 		fmt.Println("[INFO] 跳過網路重啟（下次連線時會套用新配置）")
