@@ -326,11 +326,11 @@ func (c *Connector) interactiveScanConnect() (bool, error) {
 	password = strings.TrimSpace(password)
 
 	// 4. Connect
-	return false, c.connectToNetwork(selected.SSID, password)
+	return false, c.connectToNetwork(selected.SSID, password, selected.Flags)
 }
 
 // connectToNetwork adds network and connects
-func (c *Connector) connectToNetwork(ssid, password string) error {
+func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 	// If we are using temporary scan config, verify and switch back to official config
 	if c.configPath == "/tmp/wpa_scan.conf" {
 		confMgr := config.NewConfigManager("wpa_supplicant", c.module)
@@ -350,7 +350,7 @@ func (c *Connector) connectToNetwork(ssid, password string) error {
 	time.Sleep(1 * time.Second)
 
 	fmt.Printf("[INFO] 更新配置文件: %s\n", c.configPath)
-	if err := updateWpaSupplicantConfig(c.configPath, ssid, password); err != nil {
+	if err := updateWpaSupplicantConfig(c.configPath, ssid, password, flags); err != nil {
 		return fmt.Errorf("更新配置失敗: %w", err)
 	}
 

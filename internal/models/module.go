@@ -65,6 +65,7 @@ type APCapabilities struct {
 // APProfile holds default AP parameters
 type APProfile struct {
 	SSID     string `xml:"SSID"`
+	Password string `xml:"Password"`
 	Security string `xml:"Security"` // Open, WPA2, WPA3
 	Band     string `xml:"Band"`     // 2.4G, 5G
 	Channel  int    `xml:"Channel"`

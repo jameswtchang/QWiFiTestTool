@@ -7,7 +7,7 @@ import (
 )
 
 // updateWpaSupplicantConfig updates the network block in wpa_supplicant.conf
-func updateWpaSupplicantConfig(configPath, ssid, password string) error {
+func updateWpaSupplicantConfig(configPath, ssid, password, flags string) error {
 	// Read existing config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -20,8 +20,8 @@ func updateWpaSupplicantConfig(configPath, ssid, password string) error {
 	// Remove existing network block
 	content = removeNetworkBlock(content)
 
-	// Build new network block
-	networkBlock := buildNetworkBlock(ssid, password)
+	// Build new network block based on scan flags
+	networkBlock := buildNetworkBlock(ssid, password, flags)
 
 	// Combine config
 	newConfig := content + "\n" + networkBlock
@@ -70,17 +70,46 @@ func removeNetworkBlock(content string) string {
 	return strings.Join(result, "\n")
 }
 
+// deriveKeyMgmt determines key_mgmt value from scan flags
+func deriveKeyMgmt(flags string) string {
+	upper := strings.ToUpper(flags)
+
+	if strings.Contains(upper, "SAE") {
+		return "SAE"
+	}
+	if strings.Contains(upper, "WPA3") {
+		return "SAE"
+	}
+	if strings.Contains(upper, "WPA2-PSK") || strings.Contains(upper, "RSN-PSK") {
+		return "WPA-PSK"
+	}
+	if strings.Contains(upper, "WPA-PSK") {
+		return "WPA-PSK"
+	}
+	if strings.Contains(upper, "WPA2") || strings.Contains(upper, "WPA") {
+		return "WPA-PSK"
+	}
+
+	return ""
+}
+
 // buildNetworkBlock creates a network configuration block
-func buildNetworkBlock(ssid, password string) string {
+// flags is the raw flags string from wpa_cli scan_results
+func buildNetworkBlock(ssid, password, flags string) string {
 	var block strings.Builder
 
 	block.WriteString("network={\n")
 	block.WriteString(fmt.Sprintf(" ssid=\"%s\"\n", ssid))
 
-	if password != "" {
-		block.WriteString(fmt.Sprintf(" psk=\"%s\"\n", password))
-	} else {
+	keyMgmt := deriveKeyMgmt(flags)
+
+	if password == "" {
 		block.WriteString(" key_mgmt=NONE\n")
+	} else {
+		if keyMgmt != "" {
+			block.WriteString(fmt.Sprintf(" key_mgmt=%s\n", keyMgmt))
+		}
+		block.WriteString(fmt.Sprintf(" psk=\"%s\"\n", password))
 	}
 
 	block.WriteString("}\n")

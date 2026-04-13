@@ -292,7 +292,9 @@
             <Param key="ctrl_interface">/var/run/wpa_supplicant_s1g</Param>
             <Param key="pmf">2</Param>
             <Param key="sae_pwe">1</Param>
+            <Param key="network_ssid">Quectel-halow-200h</Param>
             <Param key="network_key_mgmt">SAE</Param>
+            <Param key="network_psk">12345678</Param>
         </StationConfig>
 
         <APConfig>
@@ -305,7 +307,8 @@
             </Capabilities>
 
             <APProfile>
-                <SSID>Quectel-halow-fgh200m</SSID>
+                <SSID>Quectel-halow-200h</SSID>
+                <Password>12345678</Password>
                 <Security>WPA3</Security>
                 <Band>sub-GHz</Band>
                 <Channel>40</Channel>
@@ -371,7 +374,6 @@
                 <Param key="wmm_ac_vo_txop_limit">469</Param>
                 <Param key="wmm_ac_vo_acm">0</Param>
             </FixedParams>
-
 
             <!-- dnsmasq params -->
             <Param key="dnsmasq_user">root</Param>

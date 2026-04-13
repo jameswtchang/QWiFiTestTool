@@ -71,6 +71,9 @@ func (e *APConfigEditor) loadDefaults() {
 		if p.Security != "" {
 			e.params.Security = p.Security
 		}
+		if p.Password != "" {
+			e.params.Password = p.Password
+		}
 		if p.Band != "" {
 			e.params.Band = p.Band
 		}

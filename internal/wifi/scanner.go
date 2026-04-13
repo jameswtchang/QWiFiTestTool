@@ -162,22 +162,24 @@ func parseBand(freqStr string) string {
 	freq := 0
 	fmt.Sscanf(freqStr, "%d", &freq)
 
-	if freq >= 2400 && freq <= 2500 {
+	if freq >= 700 && freq <= 1000 {
+		return "sub-GHz"
+	} else if freq >= 2400 && freq <= 2500 {
 		return "2.4GHz"
 	} else if freq >= 5150 && freq <= 5895 {
 		return "5GHz"
 	} else if freq >= 5955 && freq <= 7115 {
 		return "6GHz"
 	}
-	return "Unknown"
+	return fmt.Sprintf("%d MHz", freq)
 }
 
 // parseSecurity determines security type from flags
 func parseSecurity(flags string) string {
 	flags = strings.ToUpper(flags)
 
-	if strings.Contains(flags, "WPA3") {
-		return "WPA3-Personal"
+	if strings.Contains(flags, "SAE") || strings.Contains(flags, "WPA3") {
+		return "WPA3-SAE"
 	} else if strings.Contains(flags, "WPA2-PSK") || strings.Contains(flags, "RSN-PSK") {
 		return "WPA2-Personal"
 	} else if strings.Contains(flags, "WPA-PSK") {
@@ -216,10 +218,12 @@ func parseWiFiGeneration(freqStr, flags string) string {
 	fmt.Sscanf(freqStr, "%d", &freq)
 	flagsUpper := strings.ToUpper(flags)
 
-	// WiFi 7 (802.11be) - check for EHT/BE capabilities
-	if strings.Contains(flagsUpper, "EHT") || strings.Contains(flagsUpper, "BE") {
-		return "WiFi 7"
+	// WiFi HaLow (802.11ah) - check frequencies or flags
+	if (freq >= 700 && freq <= 1000) || strings.Contains(flagsUpper, "AH") {
+		return "HaLow"
 	}
+
+	// WiFi 7 (802.11be) - check for EHT/BE capabilities
 
 	// WiFi 6E (802.11ax on 6GHz)
 	if freq >= 5955 && freq <= 7115 {

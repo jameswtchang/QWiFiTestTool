@@ -88,7 +88,11 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		sb.WriteString("channel=6\n")
 	}
 
-	// Security settings
+	// Security settings fallback to APProfile
+	if password == "" && module.APConfig.APProfile != nil {
+		password = module.APConfig.APProfile.Password
+	}
+
 	if password != "" {
 		sb.WriteString("wpa=2\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
