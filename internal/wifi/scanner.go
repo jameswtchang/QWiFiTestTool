@@ -224,6 +224,9 @@ func parseWiFiGeneration(freqStr, flags string) string {
 	}
 
 	// WiFi 7 (802.11be) - check for EHT/BE capabilities
+	if strings.Contains(flagsUpper, "EHT") || strings.Contains(flagsUpper, "BE") {
+		return "WiFi 7"
+	}
 
 	// WiFi 6E (802.11ax on 6GHz)
 	if freq >= 5955 && freq <= 7115 {

@@ -294,7 +294,7 @@
             <Param key="sae_pwe">1</Param>
             <Param key="network_ssid">Quectel-halow-200h</Param>
             <Param key="network_key_mgmt">SAE</Param>
-            <Param key="network_psk">12345678</Param>
+            <Param key="network_sae_password">12345678</Param>
         </StationConfig>
 
         <APConfig>

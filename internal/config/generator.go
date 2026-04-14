@@ -96,7 +96,7 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 	if password != "" {
 		sb.WriteString("wpa=2\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
-		if module.APConfig.APProfile.Security == "WPA3" {
+		if module.APConfig.APProfile != nil && module.APConfig.APProfile.Security == "WPA3" {
 			sb.WriteString(fmt.Sprintf("sae_password=%s\n", password))
 			sb.WriteString("wpa_key_mgmt=SAE\n")
 			sb.WriteString("ieee80211w=2\n")

@@ -109,7 +109,12 @@ func buildNetworkBlock(ssid, password, flags string) string {
 		if keyMgmt != "" {
 			block.WriteString(fmt.Sprintf(" key_mgmt=%s\n", keyMgmt))
 		}
-		block.WriteString(fmt.Sprintf(" psk=\"%s\"\n", password))
+		if keyMgmt == "SAE" {
+			block.WriteString(fmt.Sprintf(" sae_password=\"%s\"\n", password))
+			block.WriteString(" ieee80211w=2\n")
+		} else {
+			block.WriteString(fmt.Sprintf(" psk=\"%s\"\n", password))
+		}
 	}
 
 	block.WriteString("}\n")
