@@ -208,6 +208,14 @@ func (e *WpaEditor) generateDefaultConfig() string {
 			sb.WriteString(fmt.Sprintf("\tpsk=%s\n", psk))
 			delete(networkParams, "psk")
 		}
+		// Output sae_password with quotes if not already quoted
+		if saePw, ok := networkParams["sae_password"]; ok {
+			if !strings.HasPrefix(saePw, "\"") {
+				saePw = "\"" + saePw + "\""
+			}
+			sb.WriteString(fmt.Sprintf("\tsae_password=%s\n", saePw))
+			delete(networkParams, "sae_password")
+		}
 		// Output remaining network params
 		for k, v := range networkParams {
 			sb.WriteString(fmt.Sprintf("\t%s=%s\n", k, v))
