@@ -116,7 +116,7 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		// Skip parameters we've already set
 		if key == "interface" || key == "driver" || key == "ssid" ||
 			key == "hw_mode" || key == "channel" || key == "wpa" ||
-			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_key_mgmt" || key == "ieee80211w" {
+			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_passphrase" || key == "wpa_key_mgmt" || key == "ieee80211w" {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
