@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"qwifitesttool/internal/logger"
 	"strings"
 	"time"
 )
@@ -21,6 +22,7 @@ type Scanner struct {
 	wpaCliPath string
 	socketPath string
 	iface      string
+	log        *logger.SessionLogger
 }
 
 // NewScanner creates a new scanner instance
@@ -29,6 +31,7 @@ func NewScanner(wpaCliPath, socketPath, iface string) *Scanner {
 		wpaCliPath: wpaCliPath,
 		socketPath: socketPath,
 		iface:      iface,
+		log:        logger.GetCurrentSession(),
 	}
 }
 
@@ -55,12 +58,22 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 // execWpaCli executes a wpa_cli command
 func (s *Scanner) execWpaCli(command string) error {
 	args := []string{"-p", s.socketPath, "-i", s.iface, command}
+	cmdStr := fmt.Sprintf("%s %s", s.wpaCliPath, strings.Join(args, " "))
 	cmd := exec.Command(s.wpaCliPath, args...)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	output, err := cmd.Output()
+	if s.log != nil {
+		combined := output
+		if stderr.Len() > 0 {
+			combined = append(combined, stderr.Bytes()...)
+		}
+		s.log.LogCmd(cmdStr, combined, err)
+	}
+
+	if err != nil {
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 
@@ -70,9 +83,13 @@ func (s *Scanner) execWpaCli(command string) error {
 // execWpaCliOutput executes a wpa_cli command and returns output
 func (s *Scanner) execWpaCliOutput(command string) (string, error) {
 	args := []string{"-p", s.socketPath, "-i", s.iface, command}
+	cmdStr := fmt.Sprintf("%s %s", s.wpaCliPath, strings.Join(args, " "))
 	cmd := exec.Command(s.wpaCliPath, args...)
 
 	output, err := cmd.Output()
+	if s.log != nil {
+		s.log.LogCmd(cmdStr, output, err)
+	}
 	if err != nil {
 		return "", err
 	}

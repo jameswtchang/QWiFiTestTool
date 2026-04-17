@@ -24,15 +24,21 @@ func GenerateWpaSupplicantConfig(module *models.WiFiModule, ctrlInterface, ssid,
 	// Global parameters from XML
 	paramsMap := models.ParamsToMap(module.StationConfig)
 	var networkKeyMgmt string
+	networkParams := make(map[string]string)
 
 	for key, value := range paramsMap {
 		// Skip ctrl_interface if already set
 		if key == "ctrl_interface" && ctrlInterface != "" {
 			continue
 		}
-		// Extract network-specific key_mgmt
-		if key == "network_key_mgmt" {
-			networkKeyMgmt = value
+		// Separate network-specific parameters (network_ prefix)
+		if strings.HasPrefix(key, "network_") {
+			paramKey := strings.TrimPrefix(key, "network_")
+			if paramKey == "key_mgmt" {
+				networkKeyMgmt = value
+			} else {
+				networkParams[paramKey] = value
+			}
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
@@ -45,12 +51,26 @@ func GenerateWpaSupplicantConfig(module *models.WiFiModule, ctrlInterface, ssid,
 		sb.WriteString(fmt.Sprintf("    ssid=\"%s\"\n", ssid))
 
 		if password != "" {
-			sb.WriteString(fmt.Sprintf("    psk=\"%s\"\n", password))
-			if networkKeyMgmt != "" {
+			if networkKeyMgmt == "SAE" {
+				sb.WriteString(fmt.Sprintf("    sae_password=\"%s\"\n", password))
 				sb.WriteString(fmt.Sprintf("    key_mgmt=%s\n", networkKeyMgmt))
+				sb.WriteString("    ieee80211w=2\n")
+			} else {
+				sb.WriteString(fmt.Sprintf("    psk=\"%s\"\n", password))
+				if networkKeyMgmt != "" {
+					sb.WriteString(fmt.Sprintf("    key_mgmt=%s\n", networkKeyMgmt))
+				}
 			}
 		} else {
 			sb.WriteString("    key_mgmt=NONE\n")
+		}
+
+		// Write remaining network params from XML
+		for k, v := range networkParams {
+			if k == "ssid" || k == "sae_password" || k == "psk" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("    %s=%s\n", k, v))
 		}
 
 		sb.WriteString("    scan_ssid=1\n")
@@ -97,7 +117,7 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		sb.WriteString("wpa=2\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
 		if module.APConfig.APProfile != nil && module.APConfig.APProfile.Security == "WPA3" {
-			sb.WriteString(fmt.Sprintf("sae_password=%s\n", password))
+			sb.WriteString(fmt.Sprintf("sae_password=\"%s\"\n", password))
 			sb.WriteString("wpa_key_mgmt=SAE\n")
 			sb.WriteString("ieee80211w=2\n")
 		} else {

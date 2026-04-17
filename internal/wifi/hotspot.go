@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"qwifitesttool/internal/config"
+	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/models"
 )
 
@@ -25,6 +26,8 @@ type Hotspot struct {
 	logDir        string
 	hostapdCmd    *exec.Cmd
 	dnsmasqCmd    *exec.Cmd
+	hostapdLog    *logger.TimestampWriter
+	dnsmasqLog    *logger.TimestampWriter
 }
 
 // NewHotspot creates a new hotspot instance
@@ -33,7 +36,7 @@ func NewHotspot(module *models.WiFiModule, hostapdPath string) *Hotspot {
 		module:      module,
 		hostapdPath: hostapdPath,
 		dnsmasqPath: "dnsmasq", // Will be resolved dynamically
-		logDir:      "/tmp/ap_logs",
+		logDir:      "/tmp/wifi_logs",
 	}
 }
 
@@ -182,10 +185,10 @@ func (h *Hotspot) startServices() error {
 	timestamp := time.Now().Format("20060102_150405")
 	hostapdLog := filepath.Join(h.logDir, fmt.Sprintf("hostapd_%s.log", timestamp))
 	dnsmasqLog := filepath.Join(h.logDir, fmt.Sprintf("dnsmasq_%s.log", timestamp))
-	dmesgLog := filepath.Join(h.logDir, fmt.Sprintf("dmesg_%s.log", timestamp))
+	dmesgLog := filepath.Join(h.logDir, fmt.Sprintf("dmesg_ap_%s.log", timestamp))
 
 	// Save dmesg before starting
-	h.saveDmesg(dmesgLog, "before")
+	saveDmesg(dmesgLog, "before")
 
 	// Setup interface IP before starting dnsmasq
 	if err := h.setupInterfaceIP(); err != nil {
@@ -240,7 +243,7 @@ func (h *Hotspot) startServices() error {
 	h.Stop()
 
 	// Save dmesg after stopping
-	h.saveDmesg(dmesgLog, "after")
+	saveDmesg(dmesgLog, "after")
 
 	fmt.Println("[INFO] 熱點已停止")
 	return nil
@@ -291,22 +294,24 @@ func (h *Hotspot) setupInterfaceIP() error {
 
 // startHostapd starts the hostapd daemon
 func (h *Hotspot) startHostapd(logPath string) error {
-	logFile, err := os.Create(logPath)
+	tw, err := logger.NewTimestampWriter(logPath)
 	if err != nil {
 		return fmt.Errorf("failed to create hostapd log file: %w", err)
 	}
+	h.hostapdLog = tw
 
 	args := []string{"-dd", h.hostapdConfig}
 	h.hostapdCmd = exec.Command(h.hostapdPath, args...)
-	h.hostapdCmd.Stdout = logFile
-	h.hostapdCmd.Stderr = logFile
+	h.hostapdCmd.Stdout = tw
+	h.hostapdCmd.Stderr = tw
 
 	// Print full command
 	cmdStr := fmt.Sprintf("%s %s", h.hostapdPath, strings.Join(args, " "))
 	fmt.Printf("[CMD] %s\n", cmdStr)
 
 	if err := h.hostapdCmd.Start(); err != nil {
-		logFile.Close()
+		tw.Close()
+		h.hostapdLog = nil
 		return fmt.Errorf("failed to start hostapd: %w", err)
 	}
 
@@ -316,23 +321,25 @@ func (h *Hotspot) startHostapd(logPath string) error {
 
 // startDnsmasq starts the dnsmasq daemon
 func (h *Hotspot) startDnsmasq(logPath string) error {
-	logFile, err := os.Create(logPath)
+	tw, err := logger.NewTimestampWriter(logPath)
 	if err != nil {
 		return fmt.Errorf("failed to create dnsmasq log file: %w", err)
 	}
+	h.dnsmasqLog = tw
 
-	// -k: keep in foreground, -C: config file, --log-facility: log to file
-	args := []string{"-k", "-C", h.dnsmasqConfig, "--log-facility=" + logPath}
+	// -k: keep in foreground, -C: config file, --log-facility=-: log to stderr
+	args := []string{"-k", "-C", h.dnsmasqConfig, "--log-facility=-"}
 	h.dnsmasqCmd = exec.Command(h.dnsmasqPath, args...)
-	h.dnsmasqCmd.Stdout = logFile
-	h.dnsmasqCmd.Stderr = logFile
+	h.dnsmasqCmd.Stdout = tw
+	h.dnsmasqCmd.Stderr = tw
 
 	// Print full command
 	cmdStr := fmt.Sprintf("%s %s", h.dnsmasqPath, strings.Join(args, " "))
 	fmt.Printf("[CMD] %s\n", cmdStr)
 
 	if err := h.dnsmasqCmd.Start(); err != nil {
-		logFile.Close()
+		tw.Close()
+		h.dnsmasqLog = nil
 		return fmt.Errorf("failed to start dnsmasq: %w", err)
 	}
 
@@ -418,15 +425,22 @@ func (h *Hotspot) showAPInfo() {
 }
 
 // saveDmesg saves dmesg output to log file
-func (h *Hotspot) saveDmesg(logPath, phase string) {
+func saveDmesg(logPath, phase string) {
+	// Try dmesg -T (human-readable timestamps), fallback to plain dmesg
 	cmd := exec.Command("dmesg", "-T")
 	output, err := cmd.Output()
-	if err != nil {
-		return
+	if err != nil || len(output) == 0 {
+		cmd = exec.Command("dmesg")
+		output, err = cmd.Output()
+		if err != nil {
+			fmt.Printf("[WARN] dmesg 失敗: %v\n", err)
+			return
+		}
 	}
 
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
+		fmt.Printf("[WARN] 無法寫入 dmesg log: %v\n", err)
 		return
 	}
 	defer f.Close()
@@ -444,10 +458,19 @@ func (h *Hotspot) Stop() error {
 		h.dnsmasqCmd.Process.Kill()
 		h.dnsmasqCmd.Wait()
 	}
+	if h.dnsmasqLog != nil {
+		h.dnsmasqLog.Close()
+		h.dnsmasqLog = nil
+	}
+
 	if h.hostapdCmd != nil && h.hostapdCmd.Process != nil {
 		fmt.Printf("[CMD] kill %d (hostapd)\n", h.hostapdCmd.Process.Pid)
 		h.hostapdCmd.Process.Kill()
 		h.hostapdCmd.Wait()
+	}
+	if h.hostapdLog != nil {
+		h.hostapdLog.Close()
+		h.hostapdLog = nil
 	}
 
 	// Kill any remaining system-wide instances

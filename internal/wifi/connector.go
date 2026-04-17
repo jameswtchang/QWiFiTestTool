@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"qwifitesttool/internal/config"
+	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
 	"strings"
@@ -20,6 +21,8 @@ type Connector struct {
 	ctrlInterface string
 	configPath    string
 	daemonStarted bool
+	log           *logger.SessionLogger
+	wpaLog        *logger.TimestampWriter
 }
 
 // NewConnector creates a new connector instance
@@ -36,6 +39,28 @@ func NewConnector(module *models.WiFiModule, wpaSupplicantPath, wpaCliPath, ctrl
 // Start initiates the Station mode workflow
 func (c *Connector) Start() (bool, error) {
 	fmt.Println("\n========== Station 模式 ==========")
+
+	// Initialize session logger
+	sessionLog, err := logger.NewSession("station")
+	if err != nil {
+		fmt.Printf("[WARN] 無法建立日誌: %v\n", err)
+	} else {
+		c.log = sessionLog
+
+		// Save dmesg before starting
+		dmesgPath := c.log.GetDaemonLogPath("dmesg_station")
+		saveDmesg(dmesgPath, "before")
+
+		defer func() {
+			if c.log != nil {
+				// Save dmesg after finishing
+				saveDmesg(dmesgPath, "after")
+				c.log.Close()
+				fmt.Printf("[LOG] 操作日誌已保存: %s\n", c.log.GetLogPath())
+				fmt.Printf("[LOG] dmesg 日誌: %s\n", dmesgPath)
+			}
+		}()
+	}
 
 	skipAutoConnect := false
 
@@ -219,6 +244,13 @@ func (c *Connector) startDaemon() error {
 		return fmt.Errorf("configPath is empty")
 	}
 
+	// Log config file content before starting
+	if c.log != nil {
+		if data, err := os.ReadFile(c.configPath); err == nil {
+			c.log.LogConfig("wpa_supplicant", c.configPath, string(data))
+		}
+	}
+
 	exec.Command("ip", "link", "set", iface, "down").Run()
 	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
 
@@ -226,7 +258,6 @@ func (c *Connector) startDaemon() error {
 		"-i", iface,
 		"-D", driver,
 		"-c", c.configPath,
-		"-B",
 	}
 
 	// Add debug flag for s1g supplicant
@@ -234,18 +265,55 @@ func (c *Connector) startDaemon() error {
 		args = append(args, "-dd")
 	}
 
+	// Add daemon log file output via TimestampWriter
+	var tw *logger.TimestampWriter
+	daemonLogPath := ""
+	if c.log != nil {
+		daemonName := "wpa_supplicant"
+		if strings.Contains(c.wpaSupplicant, "_s1g") {
+			daemonName = "wpa_supplicant_s1g"
+		}
+		daemonLogPath = c.log.GetDaemonLogPath(daemonName)
+		tw, _ = logger.NewTimestampWriter(daemonLogPath)
+	}
+
 	cmdStr := fmt.Sprintf("%s %s", c.wpaSupplicant, strings.Join(args, " "))
-	fmt.Printf("[CMD] %s\n", cmdStr)
+	fmt.Printf("[CMD] %s (Foreground)\n", cmdStr)
+
+	if c.log != nil {
+		c.log.LogDaemonStart(c.wpaSupplicant, args, daemonLogPath)
+	}
 
 	cmd := exec.Command(c.wpaSupplicant, args...)
-	output, err := cmd.CombinedOutput()
+	if tw != nil {
+		cmd.Stdout = tw
+		cmd.Stderr = tw
+		c.wpaLog = tw
+	}
 
+	err := cmd.Start()
+	
+	// Keep the writer open since it's running in background as child process
+	// We will rely on disconnect/cleanup to kill wpa_supplicant.
 	if err != nil {
-		return fmt.Errorf("failed to start wpa_supplicant: %w\nOutput: %s", err, string(output))
+		if tw != nil {
+			tw.Close()
+		}
+		return fmt.Errorf("failed to start wpa_supplicant: %w", err)
+	}
+
+	// Give daemon a brief moment to initialize control interface
+	time.Sleep(1 * time.Second)
+
+	if c.log != nil {
+		c.log.LogCmd(cmdStr, []byte("Started in background child process"), err)
 	}
 
 	c.daemonStarted = true
 	fmt.Println("[INFO] wpa_supplicant 已啟動")
+	if daemonLogPath != "" {
+		fmt.Printf("[LOG] Daemon 日誌: %s\n", daemonLogPath)
+	}
 	return nil
 }
 
@@ -266,23 +334,54 @@ update_config=1
 		return fmt.Errorf("無法建立最小配置檔: %w", err)
 	}
 
+	if c.log != nil {
+		c.log.LogConfig("scan_config", minimalConfigPath, minimalConfig)
+	}
+
 	c.configPath = minimalConfigPath
 
 	args := []string{
 		"-i", iface,
 		"-D", driver,
 		"-c", minimalConfigPath,
-		"-B",
+	}
+
+	// Add daemon log file output via TimestampWriter
+	var tw *logger.TimestampWriter
+	daemonLogPath := ""
+	if c.log != nil {
+		daemonLogPath = c.log.GetDaemonLogPath("wpa_supplicant_scan")
+		tw, _ = logger.NewTimestampWriter(daemonLogPath)
 	}
 
 	cmdStr := fmt.Sprintf("%s %s", c.wpaSupplicant, strings.Join(args, " "))
-	fmt.Printf("[CMD] %s\n", cmdStr)
+	fmt.Printf("[CMD] %s (Foreground)\n", cmdStr)
+
+	if c.log != nil {
+		c.log.LogDaemonStart(c.wpaSupplicant, args, daemonLogPath)
+	}
 
 	cmd := exec.Command(c.wpaSupplicant, args...)
-	output, err := cmd.CombinedOutput()
+	if tw != nil {
+		cmd.Stdout = tw
+		cmd.Stderr = tw
+		c.wpaLog = tw
+	}
+
+	err := cmd.Start()
 
 	if err != nil {
-		return fmt.Errorf("無法啟動掃描模式: %w\nOutput: %s", err, string(output))
+		if tw != nil {
+			tw.Close()
+		}
+		return fmt.Errorf("無法啟動掃描模式: %w", err)
+	}
+
+	// Wait briefly for init
+	time.Sleep(1 * time.Second)
+
+	if c.log != nil {
+		c.log.LogCmd(cmdStr, []byte("Started in background child process"), err)
 	}
 
 	c.daemonStarted = true
@@ -342,6 +441,10 @@ func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 
 	iface := c.module.Kernel.GetInterface()
 
+	if c.log != nil {
+		c.log.LogEvent("連接到網路: SSID=%s, flags=%s, iface=%s", ssid, flags, iface)
+	}
+
 	fmt.Printf("[INFO] 連接到網路: %s\n", ssid)
 	fmt.Println("\n[DEBUG] ========== 開始配置網路 ==========")
 
@@ -351,7 +454,17 @@ func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 
 	fmt.Printf("[INFO] 更新配置文件: %s\n", c.configPath)
 	if err := updateWpaSupplicantConfig(c.configPath, ssid, password, flags); err != nil {
+		if c.log != nil {
+			c.log.LogEvent("更新配置失敗: %v", err)
+		}
 		return fmt.Errorf("更新配置失敗: %w", err)
+	}
+
+	// Log updated config
+	if c.log != nil {
+		if data, err := os.ReadFile(c.configPath); err == nil {
+			c.log.LogConfig("updated_wpa_supplicant", c.configPath, string(data))
+		}
 	}
 
 	printConfigFile(c.configPath)
@@ -389,13 +502,21 @@ func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 		c.showConnectionInfo()
 	} else if !connected {
 		fmt.Println("\n⚠️  連接失敗，診斷資訊：")
+		statusCmdStr := fmt.Sprintf("%s -p %s -i %s status", c.wpaCliPath, c.ctrlInterface, iface)
 		statusCmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
-		statusOutput, _ := statusCmd.Output()
+		statusOutput, statusErr := statusCmd.Output()
+		if c.log != nil {
+			c.log.LogCmd(statusCmdStr, statusOutput, statusErr)
+			c.log.LogEvent("連接失敗: SSID=%s", ssid)
+		}
 		c.diagnoseConnectionFailure(statusOutput, ssid, password)
 	} else {
 		fmt.Println("\n⚠️  已連接但未獲取 IP")
 		fmt.Printf("[INFO] 已連接到: %s\n", connSSID)
 		fmt.Println("[INFO] 請手動執行: udhcpc -i wlan0")
+		if c.log != nil {
+			c.log.LogEvent("已連接但未獲取 IP: SSID=%s", connSSID)
+		}
 	}
 
 	return nil

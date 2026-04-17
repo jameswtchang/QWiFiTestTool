@@ -392,7 +392,7 @@
             <!-- Mesh Network Parameters -->
             <Param key="ssid">"Quectel_FGH200M_Mesh"</Param>
             <Param key="key_mgmt">SAE</Param>
-            <Param key="psk">"12345678"</Param>
+            <Param key="sae_password">"12345678"</Param>
             <Param key="mode">5</Param>
             <Param key="channel">28</Param>
             <Param key="country">"US"</Param>

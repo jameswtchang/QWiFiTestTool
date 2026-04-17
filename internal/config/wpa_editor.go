@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"qwifitesttool/internal/models"
@@ -433,7 +434,7 @@ func rebuildConfig(originalContent string, configMap map[string]string) string {
 // saveConfig saves the configuration to file
 func (e *WpaEditor) saveConfig(content string) error {
 	// Ensure directory exists
-	dir := strings.TrimSuffix(e.configPath, "/"+e.configPath[strings.LastIndex(e.configPath, "/")+1:])
+	dir := filepath.Dir(e.configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("無法建立目錄: %w", err)
 	}

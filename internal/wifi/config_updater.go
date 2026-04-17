@@ -28,7 +28,7 @@ func updateWpaSupplicantConfig(configPath, ssid, password, flags string) error {
 
 	// Write back
 	fmt.Printf("[INFO] 更新配置文件: %s\n", configPath)
-	if err := os.WriteFile(configPath, []byte(newConfig), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(newConfig), 0600); err != nil {
 		return fmt.Errorf("寫入配置文件失敗: %w", err)
 	}
 
@@ -61,10 +61,8 @@ func removeNetworkBlock(content string) string {
 			continue
 		}
 
-		// Keep non-network lines
-		if trimmed != "" {
-			result = append(result, line)
-		}
+		// Keep non-network lines (including blank lines)
+		result = append(result, line)
 	}
 
 	return strings.Join(result, "\n")

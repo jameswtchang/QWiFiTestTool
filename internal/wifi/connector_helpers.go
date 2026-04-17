@@ -11,8 +11,12 @@ import (
 func (c *Connector) checkConnectionStatus() (bool, string) {
 	iface := c.module.Kernel.GetInterface()
 
+	cmdStr := fmt.Sprintf("%s -p %s -i %s status", c.wpaCliPath, c.ctrlInterface, iface)
 	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
 	output, err := cmd.Output()
+	if c.log != nil {
+		c.log.LogCmd(cmdStr, output, err)
+	}
 	if err != nil {
 		return false, ""
 	}
@@ -40,8 +44,13 @@ func (c *Connector) checkConnectionStatus() (bool, string) {
 func (c *Connector) disconnect() error {
 	iface := c.module.Kernel.GetInterface()
 
+	cmdStr := fmt.Sprintf("%s -p %s -i %s disconnect", c.wpaCliPath, c.ctrlInterface, iface)
 	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "disconnect")
-	if err := cmd.Run(); err != nil {
+	output, err := cmd.CombinedOutput()
+	if c.log != nil {
+		c.log.LogCmd(cmdStr, output, err)
+	}
+	if err != nil {
 		return fmt.Errorf("斷開連線失敗: %w", err)
 	}
 
