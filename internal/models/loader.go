@@ -71,7 +71,7 @@ func (c *WiFiToolConfig) GetModuleByID(id string) (*WiFiModule, error) {
 func (c *WiFiToolConfig) ListModules() []string {
 	result := make([]string, len(c.Modules))
 	for i, mod := range c.Modules {
-		result[i] = fmt.Sprintf("[%d] %s (%s)", i+1, mod.DisplayName, mod.ID)
+		result[i] = fmt.Sprintf("[%d] %s", i+1, mod.DisplayName)
 	}
 	return result
 }

@@ -2,7 +2,7 @@
 <WiFiTool>
     <!-- Quectel FC21 (Realtek RTL8821CU Chipset) -->
     <Module id="quectel_fc21">
-        <DisplayName>Quectel FC21 (RTL8821CU)</DisplayName>
+        <DisplayName>Quectel FC21 (Realtek RTL8821CU)</DisplayName>
         
         <Kernel>
             <KoName>8821cu.ko</KoName>
@@ -58,7 +58,7 @@
 
     <!-- Quectel FCM360W (MediaTek MT7663 Chipset) -->
     <Module id="quectel_fcm360w">
-        <DisplayName>Quectel FCM360W (MT7663)</DisplayName>
+        <DisplayName>Quectel FCM360W (MediaTek MT7663)</DisplayName>
         
         <Kernel>
             <KoName>mt7663u.ko</KoName>
@@ -112,7 +112,7 @@
 
     <!-- Quectel FCS945R (Realtek RTL8733BS Chipset) -->
     <Module id="quectel_fcs945r">
-        <DisplayName>Quectel FCS945R (RTL8733BS)</DisplayName>
+        <DisplayName>Quectel FCS945R (Realtek RTL8733BS)</DisplayName>
         
         <Kernel>
             <KoName>8733bs.ko</KoName>
@@ -167,7 +167,7 @@
 
     <!-- Quectel FCU741R (Realtek RTL8733BU Chipset) -->
     <Module id="quectel_fcu741r">
-        <DisplayName>Quectel FCU741R (RTL8733BU)</DisplayName>
+        <DisplayName>Quectel FCU741R (Realtek RTL8733BU)</DisplayName>
         
         <Kernel>
             <KoName>rtl8733bu.ko</KoName>
@@ -222,7 +222,7 @@
 
     <!-- Quectel FCS961K-L (AIC8800 Chipset) -->
     <Module id="quectel_fcs961kl">
-        <DisplayName>Quectel FCS961K-L (AIC8800)</DisplayName>
+        <DisplayName>Quectel FCS961K-L (Aicsemi AIC8800)</DisplayName>
         
         <Kernel>
             <KoName>aic8800_fdrv.ko</KoName>
@@ -278,7 +278,7 @@
     </Module>
     <!-- Quectel FGH200M (Morse Micro Chipset) -->
     <Module id="quectel_fgh200m">
-        <DisplayName>Quectel FGH200M (Morse Micro)</DisplayName>
+        <DisplayName>Quectel FGH200M (Morse Micro MM8108)</DisplayName>
         
         <Kernel>
             <KoName>morse.ko</KoName>
@@ -410,5 +410,63 @@
             <Param key="dot11MeshBeaconTimingReportInterval">15</Param>
             <Param key="mbss_start_scan_duration_ms">3072</Param>
         </MeshConfig>
+    </Module>
+    <!-- Quectel FC905A -->
+    <Module id="quectel_fc905a">
+        <DisplayName>Quectel FC905A (Infineon CYW43455)</DisplayName>
+        
+        <Kernel>
+            <KoName>bcmdhd.ko</KoName>
+            <InsmodArgs></InsmodArgs>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G</Bands>
+                <Modes>b,g,n</Modes>
+                <MaxBandwidth>40</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>softAP1</SSID>
+                <Security>OPEN</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.11.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.11.2</DHCPStart>
+                <DHCPEnd>192.168.11.20</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="ht_capab">[SHORT-GI-20]</Param>
+            </FixedParams>
+
+            <Param key="interface">wlan0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="ctrl_interface">/var/run/hostapd</Param>
+            <Param key="ctrl_interface_group">0</Param>
+            <Param key="hw_mode">g</Param>
+            <Param key="channel">6</Param>
+            <Param key="country_code">CN</Param>
+            <Param key="ieee80211n">1</Param>
+
+            <!-- dnsmasq params -->
+            <Param key="dnsmasq_user">root</Param>
+            <Param key="dnsmasq_listen_address">192.168.11.1</Param>
+            <Param key="dnsmasq_server">/google/8.8.8.8</Param>
+        </APConfig>
     </Module>
 </WiFiTool>
