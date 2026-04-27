@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 )
 
 //go:embed default_modules.xml
@@ -71,7 +72,12 @@ func (c *WiFiToolConfig) GetModuleByID(id string) (*WiFiModule, error) {
 func (c *WiFiToolConfig) ListModules() []string {
 	result := make([]string, len(c.Modules))
 	for i, mod := range c.Modules {
-		result[i] = fmt.Sprintf("[%d] %s", i+1, mod.DisplayName)
+		parts := strings.SplitN(mod.DisplayName, " (", 2)
+		if len(parts) == 2 {
+			result[i] = fmt.Sprintf("[%d] %-18s\t(%s", i+1, parts[0], parts[1])
+		} else {
+			result[i] = fmt.Sprintf("[%d] %s", i+1, mod.DisplayName)
+		}
 	}
 	return result
 }

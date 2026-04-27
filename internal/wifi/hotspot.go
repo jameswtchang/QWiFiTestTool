@@ -109,6 +109,21 @@ func (h *Hotspot) setupDnsmasqConfig() error {
 		// Generate default dnsmasq config
 		iface := h.module.Kernel.GetInterface()
 		cfg := config.DefaultDnsmasqConfig(iface)
+
+		// Apply network overrides from XML
+		if h.module.APConfig.Network != nil {
+			net := h.module.APConfig.Network
+			if net.Gateway != "" {
+				cfg.GatewayIP = net.Gateway
+			}
+			if net.Netmask != "" {
+				cfg.SubnetMask = net.Netmask
+			}
+			if net.DHCPStart != "" && net.DHCPEnd != "" {
+				cfg.DHCPRange = fmt.Sprintf("%s,%s,%s", net.DHCPStart, net.DHCPEnd, cfg.LeaseTime)
+			}
+		}
+
 		configContent := config.GenerateDnsmasqConfig(h.module, cfg)
 
 		if err := config.SaveConfig(h.dnsmasqConfig, configContent); err != nil {

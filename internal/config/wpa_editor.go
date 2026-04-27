@@ -50,7 +50,7 @@ func (e *WpaEditor) Start() (bool, error) {
 	// Step 4: Ask user for action
 	fmt.Println("\n請選擇操作:")
 	fmt.Println("[1] 修改當前配置")
-	fmt.Println("[2] 重新生成 (使用 XML 預設值)")
+	fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
 	fmt.Println("[0] 退出不修改")
 	fmt.Print("選擇: ")
 

@@ -1,5 +1,59 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <WiFiTool>
+    <!-- Quectel FCM360W (MediaTek MT7663 Chipset) -->
+    <Module id="quectel_fcm360w">
+        <DisplayName>Quectel FCM360W (MediaTek MT7663)</DisplayName>
+        
+        <Kernel>
+            <KoName>mt7663u.ko</KoName>
+            <InsmodArgs></InsmodArgs>
+            <Interface>ra0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+            <Param key="country">CN</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G</Bands>
+                <Modes>b,g,n,ac</Modes>
+                <MaxBandwidth>80</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FCM360W_AP</SSID>
+                <Security>WPA2</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+            </FixedParams>
+
+            <Param key="interface">ra0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="hw_mode">g</Param>
+            <Param key="channel">6</Param>
+            <Param key="ieee80211n">1</Param>
+            <Param key="ieee80211ac">1</Param>
+        </APConfig>
+    </Module>
+
     <!-- Quectel FC21 (Realtek RTL8821CU Chipset) -->
     <Module id="quectel_fc21">
         <DisplayName>Quectel FC21 (Realtek RTL8821CU)</DisplayName>
@@ -52,61 +106,8 @@
             <Param key="hw_mode">g</Param>
             <Param key="channel">6</Param>
             <Param key="ieee80211n">1</Param>
-            <Param key="wmm_enabled">1</Param>
-        </APConfig>
-    </Module>
-
-    <!-- Quectel FCM360W (MediaTek MT7663 Chipset) -->
-    <Module id="quectel_fcm360w">
-        <DisplayName>Quectel FCM360W (MediaTek MT7663)</DisplayName>
-        
-        <Kernel>
-            <KoName>mt7663u.ko</KoName>
-            <InsmodArgs></InsmodArgs>
-            <Interface>ra0</Interface>
-            <DriverBackend>nl80211</DriverBackend>
-        </Kernel>
-
-        <StationConfig>
-            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
-            <Param key="update_config">1</Param>
-            <Param key="country">CN</Param>
-        </StationConfig>
-
-        <APConfig>
-            <Capabilities>
-                <Bands>2.4G,5G</Bands>
-                <Modes>b,g,n,ac</Modes>
-                <MaxBandwidth>80</MaxBandwidth>
-                <SupportDFS>false</SupportDFS>
-                <SupportWPA3>false</SupportWPA3>
-            </Capabilities>
-
-            <APProfile>
-                <SSID>FCM360W_AP</SSID>
-                <Security>WPA2</Security>
-                <Band>2.4G</Band>
-                <Channel>6</Channel>
-            </APProfile>
-
-            <Network>
-                <Gateway>192.168.50.1</Gateway>
-                <Netmask>255.255.255.0</Netmask>
-                <DHCPStart>192.168.50.100</DHCPStart>
-                <DHCPEnd>192.168.50.200</DHCPEnd>
-            </Network>
-
-            <FixedParams>
-                <Param key="beacon_int">100</Param>
-                <Param key="dtim_period">2</Param>
-            </FixedParams>
-
-            <Param key="interface">ra0</Param>
-            <Param key="driver">nl80211</Param>
-            <Param key="hw_mode">g</Param>
-            <Param key="channel">6</Param>
-            <Param key="ieee80211n">1</Param>
             <Param key="ieee80211ac">1</Param>
+            <Param key="wmm_enabled">1</Param>
         </APConfig>
     </Module>
 
@@ -276,6 +277,65 @@
             <Param key="ieee80211ax">1</Param>
         </APConfig>
     </Module>
+    <!-- Quectel FC905A -->
+    <Module id="quectel_fc905a">
+        <DisplayName>Quectel FC905A (Infineon CYW43455)</DisplayName>
+        
+        <Kernel>
+            <KoName>bcmdhd.ko</KoName>
+            <InsmodArgs></InsmodArgs>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G</Bands>
+                <Modes>b,g,n</Modes>
+                <MaxBandwidth>40</MaxBandwidth>
+                <SupportDFS>false</SupportDFS>
+                <SupportWPA3>false</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FC905A_AP</SSID>
+                <Security>OPEN</Security>
+                <Band>2.4G</Band>
+                <Channel>6</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.11.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.11.2</DHCPStart>
+                <DHCPEnd>192.168.11.20</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="ht_capab">[SHORT-GI-20]</Param>
+            </FixedParams>
+
+            <Param key="interface">wlan0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="ctrl_interface">/var/run/hostapd</Param>
+            <Param key="ctrl_interface_group">0</Param>
+            <Param key="hw_mode">g</Param>
+            <Param key="channel">6</Param>
+            <Param key="country_code">CN</Param>
+            <Param key="ieee80211n">1</Param>
+
+            <!-- dnsmasq params -->
+            <Param key="dnsmasq_minimal">1</Param>
+            <Param key="dnsmasq_user">root</Param>
+            <Param key="dnsmasq_listen_address">192.168.11.1</Param>
+            <Param key="dnsmasq_server">/google/8.8.8.8</Param>
+        </APConfig>
+    </Module>
     <!-- Quectel FGH200M (Morse Micro Chipset) -->
     <Module id="quectel_fgh200m">
         <DisplayName>Quectel FGH200M (Morse Micro MM8108)</DisplayName>
@@ -410,63 +470,5 @@
             <Param key="dot11MeshBeaconTimingReportInterval">15</Param>
             <Param key="mbss_start_scan_duration_ms">3072</Param>
         </MeshConfig>
-    </Module>
-    <!-- Quectel FC905A -->
-    <Module id="quectel_fc905a">
-        <DisplayName>Quectel FC905A (Infineon CYW43455)</DisplayName>
-        
-        <Kernel>
-            <KoName>bcmdhd.ko</KoName>
-            <InsmodArgs></InsmodArgs>
-            <Interface>wlan0</Interface>
-            <DriverBackend>nl80211</DriverBackend>
-        </Kernel>
-
-        <StationConfig>
-            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
-            <Param key="update_config">1</Param>
-        </StationConfig>
-
-        <APConfig>
-            <Capabilities>
-                <Bands>2.4G,5G</Bands>
-                <Modes>b,g,n</Modes>
-                <MaxBandwidth>40</MaxBandwidth>
-                <SupportDFS>false</SupportDFS>
-                <SupportWPA3>false</SupportWPA3>
-            </Capabilities>
-
-            <APProfile>
-                <SSID>softAP1</SSID>
-                <Security>OPEN</Security>
-                <Band>2.4G</Band>
-                <Channel>6</Channel>
-            </APProfile>
-
-            <Network>
-                <Gateway>192.168.11.1</Gateway>
-                <Netmask>255.255.255.0</Netmask>
-                <DHCPStart>192.168.11.2</DHCPStart>
-                <DHCPEnd>192.168.11.20</DHCPEnd>
-            </Network>
-
-            <FixedParams>
-                <Param key="ht_capab">[SHORT-GI-20]</Param>
-            </FixedParams>
-
-            <Param key="interface">wlan0</Param>
-            <Param key="driver">nl80211</Param>
-            <Param key="ctrl_interface">/var/run/hostapd</Param>
-            <Param key="ctrl_interface_group">0</Param>
-            <Param key="hw_mode">g</Param>
-            <Param key="channel">6</Param>
-            <Param key="country_code">CN</Param>
-            <Param key="ieee80211n">1</Param>
-
-            <!-- dnsmasq params -->
-            <Param key="dnsmasq_user">root</Param>
-            <Param key="dnsmasq_listen_address">192.168.11.1</Param>
-            <Param key="dnsmasq_server">/google/8.8.8.8</Param>
-        </APConfig>
     </Module>
 </WiFiTool>

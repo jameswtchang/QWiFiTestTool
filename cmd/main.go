@@ -67,6 +67,7 @@ func main() {
 			runStationMode(module, binMgr, platformInfo)
 		case "4":
 			runAPConfigEditor(module)
+			continue
 		case "5":
 			runAPMode(module, binMgr)
 		case "0":

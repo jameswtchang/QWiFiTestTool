@@ -126,7 +126,7 @@ func (e *APConfigEditor) Start() error {
 		e.showCurrentConfig()
 
 		fmt.Println("\n[1] 修改當前配置")
-		fmt.Println("[2] 捨棄舊設定，載入模組預設值")
+		fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
 		fmt.Println("[0] 返回主選單")
 		fmt.Print("選擇: ")
 

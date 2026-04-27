@@ -133,6 +133,11 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 
 	paramsMap := models.ParamsToMap(allParams)
 	for key, value := range paramsMap {
+		// Skip dnsmasq parameters in hostapd config
+		if strings.HasPrefix(key, "dnsmasq_") {
+			continue
+		}
+
 		// Skip parameters we've already set
 		if key == "interface" || key == "driver" || key == "ssid" ||
 			key == "hw_mode" || key == "channel" || key == "wpa" ||
@@ -176,16 +181,91 @@ func DefaultDnsmasqConfig(iface string) DnsmasqConfig {
 func GenerateDnsmasqConfig(module *models.WiFiModule, cfg DnsmasqConfig) string {
 	var sb strings.Builder
 
+	// Extract custom dnsmasq params
+	var allParams []models.Param
+	allParams = append(allParams, module.APConfig.FixedParams...)
+	allParams = append(allParams, module.APConfig.Params...)
+
+	paramsMap := models.ParamsToMap(allParams)
+	dnsmasqParams := make(map[string]string)
+	for k, v := range paramsMap {
+		if strings.HasPrefix(k, "dnsmasq_") {
+			dnsmasqParams[strings.TrimPrefix(k, "dnsmasq_")] = v
+		}
+	}
+
+	user := "root"
+	if u, ok := dnsmasqParams["user"]; ok {
+		user = u
+		delete(dnsmasqParams, "user")
+	}
+
+	listenAddress := cfg.GatewayIP
+	if la, ok := dnsmasqParams["listen_address"]; ok {
+		listenAddress = la
+		delete(dnsmasqParams, "listen_address")
+	}
+
+	server := cfg.DNSServer
+	if s, ok := dnsmasqParams["server"]; ok {
+		server = s
+		delete(dnsmasqParams, "server")
+	}
+
+	// Minimal mode: vendor-style stripped config
+	if dnsmasqParams["minimal"] == "1" {
+		delete(dnsmasqParams, "minimal")
+
+		sb.WriteString(fmt.Sprintf("user=%s\n", user))
+		sb.WriteString(fmt.Sprintf("interface=%s\n", cfg.Interface))
+		sb.WriteString(fmt.Sprintf("listen-address=%s\n", listenAddress))
+
+		// dhcp-range without lease time
+		if net := module.APConfig.Network; net != nil && net.DHCPStart != "" && net.DHCPEnd != "" {
+			sb.WriteString(fmt.Sprintf("dhcp-range=%s,%s\n", net.DHCPStart, net.DHCPEnd))
+		} else {
+			parts := strings.Split(cfg.DHCPRange, ",")
+			if len(parts) >= 2 {
+				sb.WriteString(fmt.Sprintf("dhcp-range=%s,%s\n", parts[0], parts[1]))
+			} else {
+				sb.WriteString(fmt.Sprintf("dhcp-range=%s\n", cfg.DHCPRange))
+			}
+		}
+
+		sb.WriteString(fmt.Sprintf("server=%s\n", server))
+
+		// Any remaining custom params
+		for k, v := range dnsmasqParams {
+			k = strings.ReplaceAll(k, "_", "-")
+			sb.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+		}
+
+		return sb.String()
+	}
+
+	// === Full mode (default) ===
+	delete(dnsmasqParams, "minimal")
+
+	bindInterfaces := true
+	if bi, ok := dnsmasqParams["bind_interfaces"]; ok {
+		if bi == "0" || bi == "false" {
+			bindInterfaces = false
+		}
+		delete(dnsmasqParams, "bind_interfaces")
+	}
+
 	// Header comment
 	sb.WriteString("# dnsmasq configuration for AP mode\n")
 	sb.WriteString(fmt.Sprintf("# Generated for module: %s\n", module.DisplayName))
 	sb.WriteString("# Generated at: " + getCurrentTime() + "\n\n")
 
 	// Interface and binding
-	sb.WriteString("user=root\n")
+	sb.WriteString(fmt.Sprintf("user=%s\n", user))
 	sb.WriteString(fmt.Sprintf("interface=%s\n", cfg.Interface))
-	sb.WriteString(fmt.Sprintf("listen-address=%s\n", cfg.GatewayIP))
-	sb.WriteString("bind-interfaces\n")
+	sb.WriteString(fmt.Sprintf("listen-address=%s\n", listenAddress))
+	if bindInterfaces {
+		sb.WriteString("bind-interfaces\n")
+	}
 
 	// DHCP settings
 	sb.WriteString("\n# DHCP settings\n")
@@ -196,7 +276,16 @@ func GenerateDnsmasqConfig(module *models.WiFiModule, cfg DnsmasqConfig) string 
 
 	// DNS settings
 	sb.WriteString("\n# DNS settings\n")
-	sb.WriteString(fmt.Sprintf("server=%s\n", cfg.DNSServer))
+	sb.WriteString(fmt.Sprintf("server=%s\n", server))
+
+	// Custom dnsmasq params
+	if len(dnsmasqParams) > 0 {
+		sb.WriteString("\n# Custom settings\n")
+		for k, v := range dnsmasqParams {
+			k = strings.ReplaceAll(k, "_", "-")
+			sb.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+		}
+	}
 
 	// Logging
 	sb.WriteString("\n# Logging\n")
