@@ -304,7 +304,8 @@
 
             <APProfile>
                 <SSID>FC905A_AP</SSID>
-                <Security>OPEN</Security>
+                <Security>WPA2</Security>
+                <Password>12345678</Password>
                 <Band>2.4G</Band>
                 <Channel>6</Channel>
             </APProfile>
@@ -330,7 +331,6 @@
             <Param key="ieee80211n">1</Param>
 
             <!-- dnsmasq params -->
-            <Param key="dnsmasq_minimal">1</Param>
             <Param key="dnsmasq_user">root</Param>
             <Param key="dnsmasq_listen_address">192.168.11.1</Param>
             <Param key="dnsmasq_server">/google/8.8.8.8</Param>

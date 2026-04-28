@@ -70,6 +70,7 @@ func main() {
 			continue
 		case "5":
 			runAPMode(module, binMgr)
+			continue
 		case "0":
 			fmt.Println("再見!")
 			return

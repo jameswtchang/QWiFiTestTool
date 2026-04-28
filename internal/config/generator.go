@@ -212,39 +212,7 @@ func GenerateDnsmasqConfig(module *models.WiFiModule, cfg DnsmasqConfig) string 
 		delete(dnsmasqParams, "server")
 	}
 
-	// Minimal mode: vendor-style stripped config
-	if dnsmasqParams["minimal"] == "1" {
-		delete(dnsmasqParams, "minimal")
 
-		sb.WriteString(fmt.Sprintf("user=%s\n", user))
-		sb.WriteString(fmt.Sprintf("interface=%s\n", cfg.Interface))
-		sb.WriteString(fmt.Sprintf("listen-address=%s\n", listenAddress))
-
-		// dhcp-range without lease time
-		if net := module.APConfig.Network; net != nil && net.DHCPStart != "" && net.DHCPEnd != "" {
-			sb.WriteString(fmt.Sprintf("dhcp-range=%s,%s\n", net.DHCPStart, net.DHCPEnd))
-		} else {
-			parts := strings.Split(cfg.DHCPRange, ",")
-			if len(parts) >= 2 {
-				sb.WriteString(fmt.Sprintf("dhcp-range=%s,%s\n", parts[0], parts[1]))
-			} else {
-				sb.WriteString(fmt.Sprintf("dhcp-range=%s\n", cfg.DHCPRange))
-			}
-		}
-
-		sb.WriteString(fmt.Sprintf("server=%s\n", server))
-
-		// Any remaining custom params
-		for k, v := range dnsmasqParams {
-			k = strings.ReplaceAll(k, "_", "-")
-			sb.WriteString(fmt.Sprintf("%s=%s\n", k, v))
-		}
-
-		return sb.String()
-	}
-
-	// === Full mode (default) ===
-	delete(dnsmasqParams, "minimal")
 
 	bindInterfaces := true
 	if bi, ok := dnsmasqParams["bind_interfaces"]; ok {
