@@ -210,6 +210,9 @@ func (h *Hotspot) startServices() error {
 		fmt.Printf("[WARN] 設定介面 IP 失敗: %v\n", err)
 	}
 
+	// Set regulatory domain before starting hostapd
+	h.setRegulatoryDomain()
+
 	// Start hostapd
 	if err := h.startHostapd(hostapdLog); err != nil {
 		return err
@@ -305,6 +308,46 @@ func (h *Hotspot) setupInterfaceIP() error {
 	}
 
 	return nil
+}
+
+// setRegulatoryDomain sets the wireless regulatory domain via iw reg set
+// before hostapd starts, to ensure 5GHz channels are not blocked by NO_IR.
+func (h *Hotspot) setRegulatoryDomain() {
+	// Realtek drivers handle regulatory domain internally via rtw_country_code
+	// Setting iw reg set would conflict (no regdb on most embedded boards)
+	if strings.Contains(h.module.Kernel.InsmodArgs, "rtw_country_code") {
+		return
+	}
+
+	countryCode := ""
+
+	// 1. Try to parse country_code from hostapd.conf
+	if h.hostapdConfig != "" {
+		if data, err := os.ReadFile(h.hostapdConfig); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "country_code=") {
+					countryCode = strings.TrimPrefix(line, "country_code=")
+					break
+				}
+			}
+		}
+	}
+
+	if countryCode == "" {
+		return
+	}
+
+	fmt.Printf("[INFO] 設定 regulatory domain: %s\n", countryCode)
+	cmd := exec.Command("iw", "reg", "set", countryCode)
+	cmdStr := fmt.Sprintf("iw reg set %s", countryCode)
+	fmt.Printf("[CMD] %s\n", cmdStr)
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("[WARN] 設定 regulatory domain 失敗: %v\n", err)
+	}
+
+	// Give the kernel time to apply the new regulatory domain
+	time.Sleep(500 * time.Millisecond)
 }
 
 // startHostapd starts the hostapd daemon

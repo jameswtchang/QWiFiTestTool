@@ -109,6 +109,16 @@ func (e *APConfigEditor) loadDefaults() {
 			break
 		}
 	}
+
+	// Fallback: parse country code from InsmodArgs (e.g. rtw_country_code=CN)
+	if e.params.CountryCode == "TW" && e.module.Kernel.InsmodArgs != "" {
+		for _, arg := range strings.Split(e.module.Kernel.InsmodArgs, " ") {
+			if strings.HasPrefix(arg, "rtw_country_code=") {
+				e.params.CountryCode = strings.TrimPrefix(arg, "rtw_country_code=")
+				break
+			}
+		}
+	}
 }
 
 // Start begins the interactive editing session
@@ -123,24 +133,6 @@ func (e *APConfigEditor) Start() error {
 	if fileExists(hostapdPath) {
 		fmt.Printf("\n[INFO] 偵測到系統配置: %s\n", hostapdPath)
 		e.parseExistingHostapd(hostapdPath)
-		e.showCurrentConfig()
-
-		fmt.Println("\n[1] 修改當前配置")
-		fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
-		fmt.Println("[0] 返回主選單")
-		fmt.Print("選擇: ")
-
-		switch e.readLine() {
-		case "1":
-			// 什麼都不做，繼承已解析的舊設定進入迴圈
-		case "2":
-			e.loadDefaults()
-			fmt.Println("[INFO] 已載入 XML 預設配置")
-		case "0":
-			return nil
-		default:
-			return nil
-		}
 	} else {
 		fmt.Println("\n[INFO] 系統配置不存在，使用 XML 預設值")
 	}
@@ -148,7 +140,9 @@ func (e *APConfigEditor) Start() error {
 	for {
 		e.showCurrentConfig()
 
-		fmt.Println("\n[1] 修改參數  [2] 預覽並寫入系統  [3] 恢復模組預設值  [0] 返回主選單")
+		fmt.Println("\n[1] 修改當前配置")
+		fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
+		fmt.Println("[0] 退出不修改")
 		fmt.Print("選擇操作: ")
 
 		input := e.readLine()
@@ -156,13 +150,21 @@ func (e *APConfigEditor) Start() error {
 		switch input {
 		case "1":
 			e.editParams()
-		case "2":
-			if err := e.generateAndPreview(); err != nil {
+			saved, err := e.generateAndPreview()
+			if err != nil {
 				fmt.Printf("\n❌ 錯誤: %v\n", err)
+			} else if saved {
+				return nil
 			}
-		case "3":
+		case "2":
 			e.loadDefaults()
 			fmt.Println("[INFO] 已恢復此模組的預設值")
+			saved, err := e.generateAndPreview()
+			if err != nil {
+				fmt.Printf("\n❌ 錯誤: %v\n", err)
+			} else if saved {
+				return nil
+			}
 		case "0":
 			return nil
 		default:
@@ -272,7 +274,7 @@ func (e *APConfigEditor) showCurrentConfig() {
 	gateway := "192.168.50.1"
 	dhcpStart := "192.168.50.100"
 	dhcpEnd := "192.168.50.200"
-	
+
 	if net := e.module.APConfig.Network; net != nil {
 		if net.Gateway != "" {
 			gateway = net.Gateway
@@ -626,7 +628,7 @@ func (e *APConfigEditor) editPassword() {
 	for {
 		fmt.Printf("輸入密碼 [當前: %s]: ", e.params.Password)
 		input := e.readLine()
-		
+
 		if input == "" {
 			break
 		}
@@ -665,7 +667,7 @@ func (e *APConfigEditor) refreshChannels() {
 
 // --- Generate & Preview ---
 
-func (e *APConfigEditor) generateAndPreview() error {
+func (e *APConfigEditor) generateAndPreview() (bool, error) {
 	hostapdContent := e.generateHostapd()
 	dnsmasqContent := e.generateDnsmasq()
 
@@ -702,18 +704,22 @@ func (e *APConfigEditor) generateAndPreview() error {
 	fmt.Printf("\n確認寫入系統配置? [y/N]: ")
 	if response := e.readLine(); response == "y" || response == "Y" {
 		if err := os.WriteFile(hostapdPath, []byte(hostapdContent), 0644); err != nil {
-			return fmt.Errorf("寫入 %s 失敗: %w", hostapdPath, err)
+			return false, fmt.Errorf("寫入 %s 失敗: %w", hostapdPath, err)
 		}
 		if err := os.WriteFile(dnsmasqPath, []byte(dnsmasqContent), 0644); err != nil {
-			return fmt.Errorf("寫入 %s 失敗: %w", dnsmasqPath, err)
+			return false, fmt.Errorf("寫入 %s 失敗: %w", dnsmasqPath, err)
 		}
 		fmt.Println("\n✓ 已儲存:")
 		fmt.Printf("  - %s\n", hostapdPath)
 		fmt.Printf("  - %s\n", dnsmasqPath)
-		fmt.Println("[INFO] AP 模式 (選單 5) 將自動使用此配置")
+		fmt.Println("[INFO] AP 模式 (選單 5) 將自動使用此配置\n")
+		
+		e.showCurrentConfig()
+		
+		return true, nil
 	}
 
-	return nil
+	return false, nil
 }
 
 // generateHostapd generates hostapd.conf content from current params
@@ -731,10 +737,12 @@ func (e *APConfigEditor) generateHostapd() string {
 	// SSID
 	sb.WriteString(fmt.Sprintf("ssid=%s\n", e.params.SSID))
 
-	// Country
-	sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
-	if e.params.Band != "sub-GHz" {
-		sb.WriteString("ieee80211d=1\n")
+	// Country — skip if driver handles regulatory via rtw_country_code
+	if !strings.Contains(e.module.Kernel.InsmodArgs, "rtw_country_code") {
+		sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
+		if e.params.Band != "sub-GHz" {
+			sb.WriteString("ieee80211d=1\n")
+		}
 	}
 
 	// Band → hw_mode
@@ -766,12 +774,25 @@ func (e *APConfigEditor) generateHostapd() string {
 
 	// Bandwidth → ht/vht capabilities
 	if e.params.Band != "sub-GHz" {
-		switch {
-		case e.params.Bandwidth >= 40:
-			htMode := e.calcHT40Mode()
-			sb.WriteString(fmt.Sprintf("ht_capab=[%s][SHORT-GI-20][SHORT-GI-40]\n", htMode))
-		default:
-			sb.WriteString("ht_capab=[HT20][SHORT-GI-20]\n")
+		// Prefer ht_capab from XML FixedParams if available
+		xmlHtCapab := ""
+		for _, p := range e.module.APConfig.FixedParams {
+			if p.Key == "ht_capab" {
+				xmlHtCapab = p.Value
+				break
+			}
+		}
+
+		if xmlHtCapab != "" {
+			sb.WriteString(fmt.Sprintf("ht_capab=%s\n", xmlHtCapab))
+		} else {
+			switch {
+			case e.params.Bandwidth >= 40:
+				htMode := e.calcHT40Mode()
+				sb.WriteString(fmt.Sprintf("ht_capab=[%s][SHORT-GI-20][SHORT-GI-40]\n", htMode))
+			default:
+				sb.WriteString("ht_capab=[HT20][SHORT-GI-20]\n")
+			}
 		}
 
 		if e.params.Bandwidth >= 80 && (e.params.Mode == "ac" || e.params.Mode == "ax") {
@@ -828,7 +849,7 @@ func (e *APConfigEditor) generateDnsmasq() string {
 	sb.WriteString("# Generated by QWiFiTestTool\n\n")
 
 	sb.WriteString("user=root\n")
-	
+
 	// Helper to get dnsmasq params from both FixedParams and Params
 	getDnsmasqParam := func(key string) string {
 		for _, p := range e.module.APConfig.FixedParams {
@@ -886,7 +907,7 @@ func (e *APConfigEditor) generateDnsmasq() string {
 
 	sb.WriteString("\n# DHCP settings\n")
 	sb.WriteString(fmt.Sprintf("dhcp-range=%s,%s,12h\n", dhcpStart, dhcpEnd))
-	
+
 	// Check custom dnsmasq_server in XML
 	dnsmasqServer := getDnsmasqParam("dnsmasq_server")
 

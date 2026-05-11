@@ -212,8 +212,6 @@ func GenerateDnsmasqConfig(module *models.WiFiModule, cfg DnsmasqConfig) string 
 		delete(dnsmasqParams, "server")
 	}
 
-
-
 	bindInterfaces := true
 	if bi, ok := dnsmasqParams["bind_interfaces"]; ok {
 		if bi == "0" || bi == "false" {

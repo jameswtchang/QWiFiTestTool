@@ -59,7 +59,9 @@ func main() {
 
 		switch operation {
 		case "1":
-			runDiagnosis(module)
+			if runDiagnosis(module) {
+				continue
+			}
 		case "2":
 			runConfigEditor(module, platformInfo)
 			continue
@@ -85,8 +87,8 @@ func main() {
 	}
 }
 
-// runDiagnosis performs diagnostic checks
-func runDiagnosis(module *models.WiFiModule) {
+// runDiagnosis performs diagnostic checks, returns true if all checks passed
+func runDiagnosis(module *models.WiFiModule) bool {
 	fmt.Println("\n[INFO] 執行診斷檢查...")
 	result := wifi.RunDiagnosis(module)
 	result.Print()
@@ -103,11 +105,14 @@ func runDiagnosis(module *models.WiFiModule) {
 			} else {
 				// Re-run diagnosis after loading driver
 				fmt.Println("\n[INFO] 重新執行診斷...")
-				result := wifi.RunDiagnosis(module)
+				result = wifi.RunDiagnosis(module)
 				result.Print()
 			}
 		}
 	}
+
+	// All checks passed — return true to skip PromptContinue
+	return len(result.Errors) == 0
 }
 
 // runStationMode runs Station mode workflow
