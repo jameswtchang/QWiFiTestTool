@@ -27,9 +27,15 @@ func ShowInterfaceDetail(iface string) {
 		}
 
 		// Parse TxPower
-		// Example: txpower 18.00 dBm
+		// Example: txpower 18.00 dBm or buggy txpower 42949572.96 dBm
 		if strings.HasPrefix(line, "txpower ") {
-			fmt.Printf("  發射功率: %s\n", strings.TrimPrefix(line, "txpower "))
+			powerStr := strings.TrimPrefix(line, "txpower ")
+			if strings.Contains(powerStr, "42949") {
+				// Driver returned an uninitialized/negative value that wrapped around to 2^32
+				fmt.Println("  發射功率: 未知 (Driver 未提供)")
+			} else {
+				fmt.Printf("  發射功率: %s\n", powerStr)
+			}
 		}
 	}
 }

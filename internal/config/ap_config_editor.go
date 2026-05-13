@@ -142,6 +142,7 @@ func (e *APConfigEditor) Start() error {
 
 		fmt.Println("\n[1] 修改當前配置")
 		fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
+		fmt.Println("[3] 從預設情境範本載入 (快速套用 11n/ac/ax 等情境)")
 		fmt.Println("[0] 退出不修改")
 		fmt.Print("選擇操作: ")
 
@@ -164,6 +165,18 @@ func (e *APConfigEditor) Start() error {
 				fmt.Printf("\n❌ 錯誤: %v\n", err)
 			} else if saved {
 				return nil
+			}
+		case "3":
+			loaded, err := e.loadProfileTemplate()
+			if err != nil {
+				fmt.Printf("\n❌ 載入範本失敗: %v\n", err)
+			} else if loaded {
+				saved, err := e.generateAndPreview()
+				if err != nil {
+					fmt.Printf("\n❌ 錯誤: %v\n", err)
+				} else if saved {
+					return nil
+				}
 			}
 		case "0":
 			return nil
@@ -829,8 +842,13 @@ func (e *APConfigEditor) generateHostapd() string {
 	if len(e.module.APConfig.FixedParams) > 0 {
 		sb.WriteString("\n# Fixed parameters\n")
 		for _, p := range e.module.APConfig.FixedParams {
-			// Skip params we already set
-			if p.Key == "ht_capab" || p.Key == "wmm_enabled" || p.Key == "country_code" {
+			// Skip params already set by generateHostapd logic
+			skipKeys := map[string]bool{
+				"ht_capab": true, "wmm_enabled": true, "country_code": true,
+				"vht_oper_chwidth": true, "vht_oper_centr_freq_seg0_idx": true,
+				"he_oper_chwidth": true, "he_oper_centr_freq_seg0_idx": true,
+			}
+			if skipKeys[p.Key] {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("%s=%s\n", p.Key, p.Value))
@@ -976,4 +994,125 @@ func (e *APConfigEditor) calcHT40Mode() string {
 		return "HT40+"
 	}
 	return "HT40-"
+}
+
+// loadProfileTemplate shows a menu of embedded hostapd profiles and loads the selected one.
+// Returns (true, nil) if a profile was loaded, (false, nil) if cancelled, or (false, err) on error.
+func (e *APConfigEditor) loadProfileTemplate() (bool, error) {
+	profiles, err := GetAvailableProfiles()
+	if err != nil {
+		return false, err
+	}
+	if len(profiles) == 0 {
+		return false, fmt.Errorf("找不到任何情境範本")
+	}
+
+	fmt.Println("\n========== 選擇情境範本 ==========")
+	for i, p := range profiles {
+		fmt.Printf("[%d] %s\n", i+1, p.Name)
+	}
+	fmt.Println("[0] 取消")
+	fmt.Print("選擇範本編號: ")
+
+	input := e.readLine()
+	idx, err := strconv.Atoi(input)
+	if err != nil || idx < 0 || idx > len(profiles) {
+		return false, fmt.Errorf("無效選擇")
+	}
+	if idx == 0 {
+		return false, nil // cancelled, not an error
+	}
+
+	selected := profiles[idx-1]
+	e.applyProfileParams(selected.ParsedParams)
+	fmt.Printf("\n✓ 成功載入範本: %s\n", selected.Name)
+	return true, nil
+}
+
+func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
+	if v, ok := configMap["ssid"]; ok {
+		e.params.SSID = v
+	}
+	if v, ok := configMap["country_code"]; ok {
+		e.params.CountryCode = v
+	}
+	if v, ok := configMap["channel"]; ok {
+		if ch, err := strconv.Atoi(v); err == nil {
+			e.params.Channel = ch
+		}
+	}
+
+	// hw_mode → Band
+	if v, ok := configMap["hw_mode"]; ok {
+		if v == "a" {
+			e.params.Band = "5G"
+		} else {
+			e.params.Band = "2.4G"
+		}
+	}
+
+	// ieee80211 flags → Mode
+	if configMap["ieee80211ah"] == "1" {
+		e.params.Mode = "ah"
+		e.params.Band = "sub-GHz"
+	} else if configMap["ieee80211ax"] == "1" {
+		e.params.Mode = "ax"
+	} else if configMap["ieee80211ac"] == "1" {
+		e.params.Mode = "ac"
+	} else if configMap["ieee80211n"] == "1" {
+		e.params.Mode = "n"
+	} else {
+		// Pure b/g/a without ieee80211n/ac/ax flags — treat as legacy
+		// Keep existing mode as-is; generateHostapd will emit hw_mode only
+	}
+
+	// ht_capab → Bandwidth
+	if ht, ok := configMap["ht_capab"]; ok {
+		if strings.Contains(ht, "HT40") {
+			e.params.Bandwidth = 40
+		} else {
+			e.params.Bandwidth = 20
+		}
+	} else {
+		e.params.Bandwidth = 20 // default
+	}
+
+	if configMap["vht_oper_chwidth"] == "1" || configMap["he_oper_chwidth"] == "1" {
+		e.params.Bandwidth = 80
+	}
+
+	// Security from profile
+	if configMap["wpa"] == "2" {
+		if configMap["wpa_key_mgmt"] == "SAE" {
+			e.params.Security = "WPA3"
+		} else {
+			e.params.Security = "WPA2"
+		}
+		if v, ok := configMap["sae_password"]; ok {
+			e.params.Password = v
+		} else if v, ok := configMap["wpa_passphrase"]; ok {
+			e.params.Password = v
+		}
+	} else {
+		e.params.Security = "Open"
+		e.params.Password = ""
+	}
+
+	// Remove any existing fixed params that we are overriding to avoid duplicates
+	var newFixed []models.Param
+	for _, p := range e.module.APConfig.FixedParams {
+		if p.Key != "force_40mhz" && p.Key != "ht_capab" && p.Key != "vht_oper_chwidth" && p.Key != "he_oper_chwidth" && p.Key != "he_basic_mcs_nss_set" && p.Key != "auth_algs" && p.Key != "vht_oper_centr_freq_seg0_idx" && p.Key != "he_oper_centr_freq_seg0_idx" {
+			newFixed = append(newFixed, p)
+		}
+	}
+
+	// Store special non-standard parameters in FixedParams
+	specialKeys := []string{"force_40mhz", "he_basic_mcs_nss_set", "auth_algs", "vht_oper_centr_freq_seg0_idx", "he_oper_centr_freq_seg0_idx"}
+	for _, key := range specialKeys {
+		if v, ok := configMap[key]; ok {
+			newFixed = append(newFixed, models.Param{Key: key, Value: v})
+		}
+	}
+
+	e.module.APConfig.FixedParams = newFixed
 }

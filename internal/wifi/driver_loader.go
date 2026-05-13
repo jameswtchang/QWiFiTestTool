@@ -94,6 +94,7 @@ func UnloadDriver(module *models.WiFiModule) error {
 
 	rmmodPath := sys.FindCommand("rmmod", "rmmod")
 	cmd := exec.Command(rmmodPath, moduleName)
+	fmt.Printf("[DEBUG] 執行命令: %s %s\n", rmmodPath, moduleName)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -108,6 +109,7 @@ func UnloadDriver(module *models.WiFiModule) error {
 		preModName := strings.TrimSuffix(filepath.Base(preloads[i]), ".ko")
 		fmt.Printf("[INFO] 卸載前置驅動: %s\n", preModName)
 		cmd := exec.Command(rmmodPath, preModName)
+		fmt.Printf("[DEBUG] 執行命令: %s %s\n", rmmodPath, preModName)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			fmt.Printf("[WARN] 前置驅動卸載失敗 %s: %s\n", preModName, string(output))
 		} else {
@@ -133,7 +135,7 @@ func insmodDriver(koPath, args string) error {
 		cmdStr = fmt.Sprintf("%s %s", insmodPath, koPath)
 	}
 
-	fmt.Printf("[CMD] %s\n", cmdStr)
+	fmt.Printf("[DEBUG] 執行命令: %s\n", cmdStr)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

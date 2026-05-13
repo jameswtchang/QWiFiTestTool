@@ -111,8 +111,46 @@ func runDiagnosis(module *models.WiFiModule) bool {
 		}
 	}
 
-	// All checks passed — return true to skip PromptContinue
-	return len(result.Errors) == 0
+	// All checks passed
+	if len(result.Errors) == 0 {
+		for {
+			fmt.Println("\n請選擇後續操作:")
+			fmt.Println("[1] 卸載當前驅動")
+			fmt.Println("[2] 卸載當前驅動, 並重新載入驅動")
+			fmt.Println("[0] 返回操作模式")
+			fmt.Print("\n請輸入選項 [0-2]: ")
+
+			var choice string
+			fmt.Scanln(&choice)
+
+			switch choice {
+			case "1":
+				if err := wifi.UnloadDriver(module); err != nil {
+					ui.ShowError(fmt.Errorf("卸載驅動失敗: %w", err))
+				} else {
+					fmt.Println("[INFO] 驅動已成功卸載。")
+				}
+				return true
+			case "2":
+				if err := wifi.UnloadDriver(module); err != nil {
+					ui.ShowError(fmt.Errorf("卸載驅動失敗: %w", err))
+				} else {
+					if err := wifi.LoadDriver(module); err != nil {
+						ui.ShowError(fmt.Errorf("載入驅動失敗: %w", err))
+					} else {
+						fmt.Println("[INFO] 驅動已成功重新載入。")
+					}
+				}
+				return true
+			case "0":
+				return true
+			default:
+				fmt.Println("無效選項，請重新輸入。")
+			}
+		}
+	}
+
+	return false
 }
 
 // runStationMode runs Station mode workflow
