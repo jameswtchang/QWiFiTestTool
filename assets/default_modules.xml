@@ -429,7 +429,7 @@
                 <Modes>b,g,n</Modes>
                 <MaxBandwidth>40</MaxBandwidth>
                 <SupportDFS>false</SupportDFS>
-                <SupportWPA3>false</SupportWPA3>
+                <SupportWPA3>true</SupportWPA3>
             </Capabilities>
 
             <APProfile>

@@ -128,7 +128,9 @@ func insmodDriver(koPath, args string) error {
 	var cmdStr string
 
 	if args != "" {
-		cmd = exec.Command(insmodPath, koPath, args)
+		argList := strings.Fields(args)
+		execArgs := append([]string{koPath}, argList...)
+		cmd = exec.Command(insmodPath, execArgs...)
 		cmdStr = fmt.Sprintf("%s %s %s", insmodPath, koPath, args)
 	} else {
 		cmd = exec.Command(insmodPath, koPath)

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -34,6 +35,13 @@ func LoadModules() (*WiFiToolConfig, error) {
 func getExternalConfigPath() string {
 	if runtime.GOOS == "android" || isAndroid() {
 		return "/data/local/tmp/default_modules.xml"
+	}
+	exePath, err := os.Executable()
+	if err == nil {
+		fromExe := filepath.Join(filepath.Dir(exePath), "default_modules.xml")
+		if _, err := os.Stat(fromExe); err == nil {
+			return fromExe
+		}
 	}
 	return "./default_modules.xml"
 }
