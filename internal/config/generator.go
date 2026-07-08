@@ -97,9 +97,15 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 	sb.WriteString(fmt.Sprintf("ssid=%s\n", ssid))
 
 	// Band-specific settings
-	if band == "5G" || band == "5g" {
+	if band == "5G" || band == "5g" || band == "6G" || band == "6g" {
 		sb.WriteString("hw_mode=a\n")
-		sb.WriteString("channel=36\n")
+		if module.APConfig.APProfile != nil && module.APConfig.APProfile.Channel != 0 {
+			sb.WriteString(fmt.Sprintf("channel=%d\n", module.APConfig.APProfile.Channel))
+		} else if band == "6G" || band == "6g" {
+			sb.WriteString("channel=37\n")
+		} else {
+			sb.WriteString("channel=36\n")
+		}
 	} else if band == "sub-GHz" {
 		sb.WriteString("hw_mode=a\n")
 		sb.WriteString(fmt.Sprintf("channel=%d\n", module.APConfig.APProfile.Channel))
@@ -142,6 +148,9 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		if key == "interface" || key == "driver" || key == "ssid" ||
 			key == "hw_mode" || key == "channel" || key == "wpa" ||
 			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_passphrase" || key == "wpa_key_mgmt" || key == "ieee80211w" {
+			continue
+		}
+		if (band == "6G" || band == "6g") && (key == "ieee80211n" || key == "ieee80211ac" || key == "ht_capab" || key == "vht_capab" || key == "vht_oper_chwidth" || key == "vht_oper_centr_freq_seg0_idx") {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))

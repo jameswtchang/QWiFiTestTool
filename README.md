@@ -11,6 +11,9 @@
 ✅ **互動式 TUI 編輯器**: 即時修改 SSID、頻段、頻寬、頻道，支援合法頻道驗證  
 ✅ **國家碼支援**: 內置全球資通訊規範 (Country Code / Channel Lookup)  
 ✅ **健康檢查**: 介面、驅動、RFKill、核心日誌診斷  
+✅ **6GHz 架構準備**: 頻段偵測、HE 參數生成、6G 專屬過濾邏輯  
+✅ **驅動後置命令 (PostLoadCmd)**: 支援 insmod 後自動執行自訂 shell 命令  
+✅ **CJK 終端對齊**: 中英文混合標籤在終端機完美視覺對齊  
 
 ## 目錄結構
 
@@ -129,13 +132,28 @@ su
 </Module>
 ```
 
+## 支援模組
+
+| # | 模組 | 晶片 | 頻段 | 最高協議 | 狀態 |
+|---|------|------|------|----------|------|
+| 1 | Quectel FCS945R | RTL8733BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 2 | Quectel FCE863R | RTL8852BE | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 3 | Quectel FCS866R | RTL8852BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 4 | Quectel FCE867R | RTL8851BU | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 5 | Quectel FCS868R | RTL8852BP | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 6 | Quectel FCE861W | RTL8821CU | 2.4G/5G | WiFi 5 (ac) | ✅ 已驗證 |
+| 7 | Quectel FCS945RI | MT7663 | 2.4G/5G | WiFi 5 (ac) | ✅ 已驗證 |
+| 8 | Quectel FGH200M | - | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
+| 9 | Quectel FME164Q | QCA2064 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+
 ## 技術細節
 
 - **頻道資訊庫**: 內嵌 4000+ 行 `country_channel_lookup.json`。
 - **Zero-Dependency**: 僅依賴 Go 標準庫，適合嵌入式系統。
 - **進程管理**: 使用 Process Group 確保子進程 (hostapd/dnsmasq) 完全終止。
+- **CJK 對齊引擎**: 自行實作 East Asian Width 視覺寬度計算，確保中英文標籤在終端機對齊。
 
 ---
 
-**版本**: 1.1  
-**維護**: WiFi 驅動團隊 (Updated: 2026-02-25)
+**版本**: V1.01  
+**維護**: WiFi 驅動團隊 (Updated: 2026-07-08)

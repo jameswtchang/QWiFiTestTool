@@ -14,7 +14,7 @@ func ShowBanner() {
 	fmt.Println(Cyan + Bold + "╔═══════════════════════════════════════════╗" + Reset)
 	fmt.Println(Cyan + Bold + "║     QWifiTestTool - WiFi 配置與測試工具   ║" + Reset)
 	fmt.Println(Cyan + Bold + "║           支援 Linux & Android            ║" + Reset)
-	fmt.Println(Cyan + Bold + "║                版本: V1.0                 ║" + Reset)
+	fmt.Println(Cyan + Bold + "║               版本: V1.01                 ║" + Reset)
 	fmt.Println(Cyan + Bold + "║          Designed by James Chang          ║" + Reset)
 	fmt.Println(Cyan + Bold + "╚═══════════════════════════════════════════╝" + Reset)
 	fmt.Println()
@@ -84,4 +84,23 @@ func ShowError(err error) {
 // ShowSuccess displays a success message
 func ShowSuccess(msg string) {
 	fmt.Printf("\n"+Green+Bold+"✓ %s"+Reset+"\n\n", msg)
+}
+
+// AlignLabel formats a label to a fixed visual column width (assuming CJK characters take 2 columns).
+func AlignLabel(label string, targetWidth int) string {
+	width := 0
+	for _, r := range label {
+		if r >= 0x2e80 && r <= 0xa4cf || r >= 0xac00 && r <= 0xd7a3 ||
+			r >= 0xf900 && r <= 0xfaff || r >= 0xfe10 && r <= 0xfe6f ||
+			r >= 0xff00 && r <= 0xff60 || r >= 0xffe0 && r <= 0xffe6 ||
+			r >= 0x20000 && r <= 0x3fffd {
+			width += 2
+		} else {
+			width += 1
+		}
+	}
+	if width >= targetWidth {
+		return label
+	}
+	return label + strings.Repeat(" ", targetWidth-width)
 }

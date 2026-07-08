@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"qwifitesttool/internal/ui"
 )
 
 // ShowInterfaceDetail displays detailed interface information using 'iw'
@@ -23,7 +25,7 @@ func ShowInterfaceDetail(iface string) {
 		// Parse Channel and Width
 		// Example: channel 4 (2427 MHz), width: 20 MHz, center1: 2427 MHz
 		if strings.HasPrefix(line, "channel ") {
-			fmt.Printf("  頻道:     %s\n", line)
+			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("頻道:", 10), line)
 		}
 
 		// Parse TxPower
@@ -32,9 +34,9 @@ func ShowInterfaceDetail(iface string) {
 			powerStr := strings.TrimPrefix(line, "txpower ")
 			if strings.Contains(powerStr, "42949") {
 				// Driver returned an uninitialized/negative value that wrapped around to 2^32
-				fmt.Println("  發射功率: 未知 (Driver 未提供)")
+				fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("發射功率:", 10), "未知 (Driver 未提供)")
 			} else {
-				fmt.Printf("  發射功率: %s\n", powerStr)
+				fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("發射功率:", 10), powerStr)
 			}
 		}
 	}

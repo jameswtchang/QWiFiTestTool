@@ -601,4 +601,79 @@
             <Param key="mbss_start_scan_duration_ms">3072</Param>
         </MeshConfig>
     </Module>
+
+    <!-- Quectel FME164Q (Qualcomm QCA2064 Chipset) -->
+    <Module id="quectel_fme164q">
+        <DisplayName>Quectel FME164Q (Qualcomm QCA2064)</DisplayName>
+        
+        <Kernel>
+            <KoName>wlan.ko</KoName>
+            <PreloadKo>wlan_cnss_core_pcie.ko</PreloadKo>
+            <InsmodArgs>country_code=TW</InsmodArgs>
+            <PostLoadCmd>ifconfig wlan0 up</PostLoadCmd>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G</Bands>
+                <Modes>a,b,g,n,ac,ax</Modes>
+                <MaxBandwidth>80</MaxBandwidth>
+                <SupportDFS>true</SupportDFS>
+                <SupportWPA3>true</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FME164Q_AP</SSID>
+                <Password>12345678</Password>
+                <Security>WPA3</Security>
+                <Band>5G</Band>
+                <Channel>36</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+                <Param key="auth_algs">1</Param>
+                <Param key="sae_pwe">2</Param>
+                <Param key="ht_capab">[HT20][HT40+][HT40-][SHORT-GI-20][SHORT-GI-40]</Param>
+                <Param key="vht_capab">[SHORT-GI-80]</Param>
+                <Param key="vht_oper_chwidth">1</Param>
+                <Param key="he_oper_chwidth">1</Param>
+                <Param key="vht_oper_centr_freq_seg0_idx">42</Param>
+                <Param key="he_oper_centr_freq_seg0_idx">42</Param>
+                <!-- 11ax HE parameters -->
+                <Param key="he_bss_color">15</Param>
+                <Param key="he_su_beamformer">1</Param>
+                <Param key="he_su_beamformee">1</Param>
+                <Param key="he_mu_beamformer">1</Param>
+                <Param key="he_default_pe_duration">4</Param>
+                <Param key="he_twt_required">1</Param>
+                <Param key="he_rts_threshold">16</Param>
+            </FixedParams>
+
+            <Param key="interface">wlan0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="ctrl_interface">/var/run/hostapd</Param>
+            <Param key="ctrl_interface_group">0</Param>
+            <Param key="hw_mode">a</Param>
+            <Param key="channel">36</Param>
+            <Param key="ieee80211n">1</Param>
+            <Param key="ieee80211ac">1</Param>
+            <Param key="ieee80211ax">1</Param>
+        </APConfig>
+    </Module>
 </WiFiTool>

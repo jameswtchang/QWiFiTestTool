@@ -25,6 +25,7 @@ type KernelConfig struct {
 	KoName        string `xml:"KoName"`        // Kernel module filename (e.g., 8821cu.ko)
 	PreloadKo     string `xml:"PreloadKo"`     // Prerequisite .ko files to load before KoName (comma-separated)
 	InsmodArgs    string `xml:"InsmodArgs"`     // Arguments for insmod command
+	PostLoadCmd   string `xml:"PostLoadCmd"`   // Command to execute after driver loading (e.g., "ifconfig wlan0 up")
 	Interface     string `xml:"Interface"`      // Network interface name (default: wlan0)
 	DriverBackend string `xml:"DriverBackend"`  // Driver backend (default: nl80211)
 }

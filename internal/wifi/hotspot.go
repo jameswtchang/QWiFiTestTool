@@ -430,18 +430,20 @@ func (h *Hotspot) showAPInfo() {
 		}
 	}
 
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "介面:", configMap["interface"])
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "驅動:", configMap["driver"])
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Cyan+"%s"+ui.Reset+"\n", "SSID:", configMap["ssid"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("介面:", 10), configMap["interface"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("驅動:", 10), configMap["driver"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 10), configMap["ssid"])
 
 	channel := configMap["channel"]
 	band := "2.4GHz"
 	if configMap["ieee80211ah"] == "1" {
 		band = "Sub-GHz (802.11ah HaLow)"
+	} else if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (configMap["hw_mode"] == "a" && channel == "37") {
+		band = "6GHz"
 	} else if configMap["hw_mode"] == "a" {
 		band = "5GHz"
 	}
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", "頻段:", band, channel)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", ui.AlignLabel("頻段:", 10), band, channel)
 
 	security := "開放網路"
 	if configMap["wpa"] == "2" {
@@ -455,10 +457,10 @@ func (h *Hotspot) showAPInfo() {
 			security = fmt.Sprintf("%s (%s)", keyMgmt, pairwise)
 		}
 	}
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Yellow+"%s"+ui.Reset+"\n", "安全性:", security)
+	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("安全性:", 10), security)
 
 	if configMap["country_code"] != "" {
-		fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "國家代碼:", configMap["country_code"])
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("國家代碼:", 10), configMap["country_code"])
 	}
 
 	// Read DHCP info from dnsmasq.conf
@@ -474,8 +476,8 @@ func (h *Hotspot) showAPInfo() {
 			}
 		}
 	}
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "閘道 IP:", gateway)
-	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "DHCP:", dhcpRange)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("閘道 IP:", 10), gateway)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("DHCP:", 10), dhcpRange)
 
 	// Show iw interface details
 	ShowInterfaceDetail(h.module.Kernel.GetInterface())

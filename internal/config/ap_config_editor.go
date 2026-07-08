@@ -221,7 +221,9 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 
 	// hw_mode → Band
 	if v, ok := configMap["hw_mode"]; ok {
-		if v == "a" {
+		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (v == "a" && configMap["channel"] == "37") {
+			e.params.Band = "6G"
+		} else if v == "a" {
 			e.params.Band = "5G"
 		} else {
 			e.params.Band = "2.4G"
@@ -273,16 +275,16 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 // showCurrentConfig displays the current parameter state
 func (e *APConfigEditor) showCurrentConfig() {
 	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置 (Hostapd) ==========" + ui.Reset)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "國家碼:", e.params.CountryCode)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "AP類型:", e.params.APType)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "頻段:", e.params.Band)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "協議:", e.modeDisplayName(e.params.Mode))
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%dMHz"+ui.Reset+"\n", "頻寬:", e.params.Bandwidth)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%d"+ui.Reset+"\n", "頻道:", e.params.Channel)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Cyan+"%s"+ui.Reset+"\n", "SSID:", e.params.SSID)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Yellow+"%s"+ui.Reset+"\n", "安全性:", e.params.Security)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("國家碼:", 14), e.params.CountryCode)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("AP類型:", 14), e.params.APType)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("頻段:", 14), e.params.Band)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("協議:", 14), e.modeDisplayName(e.params.Mode))
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%dMHz"+ui.Reset+"\n", ui.AlignLabel("頻寬:", 14), e.params.Bandwidth)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%d"+ui.Reset+"\n", ui.AlignLabel("頻道:", 14), e.params.Channel)
+	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 14), e.params.SSID)
+	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("安全性:", 14), e.params.Security)
 	if e.params.Security != "Open" {
-		fmt.Printf(ui.Bold+"  %-12s "+ui.Yellow+"%s"+ui.Reset+"\n", "密碼:", e.params.Password)
+		fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("密碼:", 14), e.params.Password)
 	}
 
 	gateway := "192.168.50.1"
@@ -302,8 +304,8 @@ func (e *APConfigEditor) showCurrentConfig() {
 	}
 
 	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置 (Dnsmasq) ==========" + ui.Reset)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "Gateway:", gateway)
-	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s - %s"+ui.Reset+"\n", "DHCP Range:", dhcpStart, dhcpEnd)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("Gateway:", 14), gateway)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s - %s"+ui.Reset+"\n", ui.AlignLabel("DHCP Range:", 14), dhcpStart, dhcpEnd)
 	fmt.Println(ui.Blue + ui.Bold + "========================================" + ui.Reset)
 }
 
@@ -760,9 +762,7 @@ func (e *APConfigEditor) generateHostapd() string {
 	}
 
 	// Band → hw_mode
-	if e.params.Band == "5G" {
-		sb.WriteString("hw_mode=a\n")
-	} else if e.params.Band == "sub-GHz" {
+	if e.params.Band == "5G" || e.params.Band == "6G" || e.params.Band == "sub-GHz" {
 		sb.WriteString("hw_mode=a\n")
 	} else {
 		sb.WriteString("hw_mode=g\n")
@@ -777,8 +777,10 @@ func (e *APConfigEditor) generateHostapd() string {
 		sb.WriteString("ieee80211ah=1\n")
 	case "ax":
 		sb.WriteString("ieee80211ax=1\n")
-		sb.WriteString("ieee80211ac=1\n")
-		sb.WriteString("ieee80211n=1\n")
+		if e.params.Band != "6G" && e.params.Band != "6g" {
+			sb.WriteString("ieee80211ac=1\n")
+			sb.WriteString("ieee80211n=1\n")
+		}
 	case "ac":
 		sb.WriteString("ieee80211ac=1\n")
 		sb.WriteString("ieee80211n=1\n")
@@ -787,7 +789,16 @@ func (e *APConfigEditor) generateHostapd() string {
 	}
 
 	// Bandwidth → ht/vht capabilities
-	if e.params.Band != "sub-GHz" {
+	if e.params.Band == "6G" || e.params.Band == "6g" {
+		if e.params.Bandwidth >= 80 {
+			sb.WriteString("he_oper_chwidth=1\n")
+			centerCh := e.calcHE6GCenterChannel()
+			if centerCh > 0 {
+				sb.WriteString(fmt.Sprintf("he_oper_centr_freq_seg0_idx=%d\n", centerCh))
+			}
+		}
+		sb.WriteString("wmm_enabled=1\n")
+	} else if e.params.Band != "sub-GHz" {
 		// Prefer ht_capab from XML FixedParams if available
 		xmlHtCapab := ""
 		for _, p := range e.module.APConfig.FixedParams {
@@ -973,6 +984,19 @@ func (e *APConfigEditor) calcVHTCenterChannel() int {
 	return 0
 }
 
+// calcHE6GCenterChannel calculates HE center frequency channel for 80MHz in 6GHz
+func (e *APConfigEditor) calcHE6GCenterChannel() int {
+	ch := e.params.Channel
+	// 80MHz center channels in 6GHz: 7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231
+	centers := []int{7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231}
+	for _, c := range centers {
+		if ch >= c-6 && ch <= c+6 {
+			return c
+		}
+	}
+	return 0
+}
+
 func (e *APConfigEditor) readLine() string {
 	input, _ := e.reader.ReadString('\n')
 	return strings.TrimSpace(input)
@@ -1051,7 +1075,9 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 
 	// hw_mode → Band
 	if v, ok := configMap["hw_mode"]; ok {
-		if v == "a" {
+		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (v == "a" && configMap["channel"] == "37") {
+			e.params.Band = "6G"
+		} else if v == "a" {
 			e.params.Band = "5G"
 		} else {
 			e.params.Band = "2.4G"

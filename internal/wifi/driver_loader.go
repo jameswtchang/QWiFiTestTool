@@ -28,7 +28,22 @@ func LoadDriver(module *models.WiFiModule) error {
 	// Load main driver
 	koName := module.Kernel.KoName
 	fmt.Printf("[INFO] 開始載入驅動: %s\n", koName)
-	return findAndInsmod(koName, module.Kernel.InsmodArgs)
+	if err := findAndInsmod(koName, module.Kernel.InsmodArgs); err != nil {
+		return err
+	}
+
+	// Execute post-load command if defined (e.g., "ifconfig wlan0 up" for Qualcomm)
+	if module.Kernel.PostLoadCmd != "" {
+		fmt.Printf("[INFO] 執行驅動後置命令: %s\n", module.Kernel.PostLoadCmd)
+		cmd := exec.Command("sh", "-c", module.Kernel.PostLoadCmd)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			fmt.Printf("[WARN] 後置命令失敗: %s - %v\n", string(output), err)
+		} else {
+			fmt.Printf("[SUCCESS] 後置命令完成\n")
+		}
+	}
+
+	return nil
 }
 
 // findAndInsmod searches for a .ko file using the three-tier strategy and loads it.

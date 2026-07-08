@@ -56,3 +56,33 @@
 * **Debug 指令透明化**：在 `internal/wifi/driver_loader.go` 中，針對驅動的 `insmod` 與 `rmmod` 操作加入了 `[DEBUG]` 日誌打印。現在會明確顯示執行的完整指令路徑與參數，便於在開發板環境下進行快速排錯。
 * **配置同步機制優化**：強化了 `assets/default_modules.xml` 與嵌入代碼 `internal/models/default_modules.xml` 之間的同步邏輯，確保每次編譯都能攜帶最新的模組定義。
 
+---
+
+## 4. 最新更新 (2026-07-08) — V1.01
+
+### 新增模組支援：Quectel FME164Q (Qualcomm QCA2064)
+* **模組定義**：在 `default_modules.xml` 新增 `quectel_fme164q`，為首個 Qualcomm 平台模組。
+* **技術規格**：支援 WiFi 6 (802.11ax)、2.4G/5G 雙頻段、80MHz 頻寬、WPA3-SAE 安全加密。
+* **驅動架構**：使用 `wlan_cnss_core_pcie.ko` (前置) + `wlan.ko` (主驅動) 雙模組載入架構，需 `country_code=TW` 作為 insmod 參數。
+
+### 驅動後置命令機制 (PostLoadCmd)
+* **新增 XML 欄位**：`<PostLoadCmd>` 支援在驅動 insmod 完成後自動執行 shell 命令（如 `ifconfig wlan0 up`）。
+* **實作方式**：在 `driver_loader.go` 中透過 `exec.Command("sh", "-c", cmd)` 執行，支援管線與條件語法。
+* **向下相容**：未定義此欄位的模組 `PostLoadCmd` 為空字串，直接跳過執行區塊，不影響既有行為。
+
+### 6GHz 頻段架構支援
+* **頻段偵測**：在 `hotspot.go` 與 `ap_config_editor.go` 中加入 `op_class 131~137` 判斷邏輯，可正確辨識 6GHz 頻段。
+* **hostapd 生成**：`generator.go` 新增 6G 模式下自動過濾 HT/VHT 舊參數 (`ieee80211n`, `ieee80211ac`, `ht_capab`, `vht_capab`, `vht_oper_chwidth`, `vht_oper_centr_freq_seg0_idx`)，防止 hostapd 崩潰。
+* **HE 中心頻道計算**：`ap_config_editor.go` 新增 `calcHE6GCenterChannel()` 函數，支援 6GHz 80MHz 的 15 個中心頻道索引 (7~231)。
+* **備註**：FME164Q 模組目前不支援 6GHz 頻段，此為架構預留，確保未來 6GHz 模組可直接使用。
+
+### UI 終端對齊優化
+* **CJK 對齊引擎**：在 `internal/ui/menu.go` 新增 `AlignLabel()` 函數，基於 Unicode East Asian Width 規範計算全形/半形字元的視覺欄位寬度，確保中英文混合標籤完美對齊。
+* **影響範圍**：
+  - AP 詳細資訊面板 (`hotspot.go`)
+  - 當前配置面板 (`ap_config_editor.go`)
+  - iw 介面資訊 (`iw_helper.go`)
+* **色彩裝飾**：為 `頻道` 與 `發射功率` 欄位加上粗體與綠色/黃色色彩，與面板風格統一。
+
+### 版本號更新
+* Banner 版本號更新為 `V1.01`。
