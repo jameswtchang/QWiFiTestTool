@@ -473,7 +473,7 @@
         <Kernel>
             <KoName>morse.ko</KoName>
             <PreloadKo>dot11ah.ko</PreloadKo>
-            <InsmodArgs>country=US</InsmodArgs>
+            <InsmodArgs>country=US bcf=bcf_default.bin</InsmodArgs>
             <Interface>wlan0</Interface>
             <DriverBackend>nl80211</DriverBackend>
         </Kernel>
@@ -482,9 +482,9 @@
             <Param key="ctrl_interface">/var/run/wpa_supplicant_s1g</Param>
             <Param key="pmf">2</Param>
             <Param key="sae_pwe">1</Param>
-            <Param key="network_ssid">Quectel-halow-200h</Param>
+            <Param key="network_ssid">sdm108a-b9bf</Param>
             <Param key="network_key_mgmt">SAE</Param>
-            <Param key="network_sae_password">12345678</Param>
+            <Param key="network_sae_password">sdm108a@wifi</Param>
         </StationConfig>
 
         <APConfig>

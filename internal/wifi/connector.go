@@ -9,6 +9,7 @@ import (
 	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
+	"qwifitesttool/internal/ui"
 	"strings"
 	"time"
 )
@@ -38,7 +39,7 @@ func NewConnector(module *models.WiFiModule, wpaSupplicantPath, wpaCliPath, ctrl
 
 // Start initiates the Station mode workflow
 func (c *Connector) Start() (bool, error) {
-	fmt.Println("\n========== Station 模式 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== Station 模式 ==========" + ui.Reset)
 
 	// Initialize session logger
 	sessionLog, err := logger.NewSession("station")
@@ -117,11 +118,11 @@ func (c *Connector) Start() (bool, error) {
 		}
 
 		// Show menu
-		fmt.Println("\n========== 重新連接選項 ==========")
-		fmt.Println("[1] 使用 /etc/wpa_supplicant.conf 自動連接")
-		fmt.Println("[2] 掃描網路並手動選擇")
-		fmt.Println("[0] 取消")
-		fmt.Print("選擇: ")
+		fmt.Println("\n" + ui.Blue + ui.Bold + "========== 重新連接選項 ==========" + ui.Reset)
+		fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 使用 /etc/wpa_supplicant.conf 自動連接")
+		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 掃描網路並手動選擇")
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 取消")
+		fmt.Print(ui.Yellow + ui.Bold + "選擇: " + ui.Reset)
 
 		var choice int
 		fmt.Scanln(&choice)
@@ -589,7 +590,7 @@ func (c *Connector) diagnoseConnectionFailure(statusOutput []byte, ssid, passwor
 	iface := c.module.Kernel.GetInterface()
 	statusStr := string(statusOutput)
 
-	fmt.Println("\n========== 連接失敗診斷 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 連接失敗診斷 ==========" + ui.Reset)
 
 	fmt.Println("當前狀態:")
 	lines := strings.Split(statusStr, "\n")
@@ -631,5 +632,5 @@ func (c *Connector) diagnoseConnectionFailure(statusOutput []byte, ssid, passwor
 			fmt.Printf("  %s\n", reason)
 		}
 	}
-	fmt.Println("==============================")
+	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)
 }

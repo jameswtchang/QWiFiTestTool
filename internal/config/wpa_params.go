@@ -1,6 +1,10 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+
+	"qwifitesttool/internal/ui"
+)
 
 // WpaParam represents a wpa_supplicant configuration parameter
 type WpaParam struct {
@@ -89,13 +93,13 @@ func GetWpaParams() []WpaParam {
 
 // PromptParamEdit prompts user to edit a specific parameter
 func PromptParamEdit(param WpaParam) (string, bool) {
-	fmt.Printf("\n=== %s ===\n", param.Key)
-	fmt.Printf("說明: %s\n", param.Description)
-	fmt.Printf("建議值: %v\n", param.SuggestedValues)
-	fmt.Printf("預設值: %s\n", param.DefaultValue)
-	fmt.Printf("範例: %s\n", param.Example)
+	fmt.Printf("\n"+ui.Cyan+ui.Bold+"=== %s ==="+ui.Reset+"\n", param.Key)
+	fmt.Printf(ui.Bold+"說明: "+ui.White+"%s"+ui.Reset+"\n", param.Description)
+	fmt.Printf(ui.Bold+"建議值: "+ui.Green+"%v"+ui.Reset+"\n", param.SuggestedValues)
+	fmt.Printf(ui.Bold+"預設值: "+ui.Cyan+"%s"+ui.Reset+"\n", param.DefaultValue)
+	fmt.Printf(ui.Bold+"範例: "+ui.White+"%s"+ui.Reset+"\n", param.Example)
 
-	fmt.Print("\n是否配置此參數? [y/N]: ")
+	fmt.Print("\n" + ui.Yellow + ui.Bold + "是否配置此參數? [y/N]: " + ui.Reset)
 	var response string
 	fmt.Scanln(&response)
 
@@ -103,7 +107,7 @@ func PromptParamEdit(param WpaParam) (string, bool) {
 		return "", false
 	}
 
-	fmt.Printf("請輸入值 (直接按 Enter 使用預設值 '%s'): ", param.DefaultValue)
+	fmt.Printf(ui.Yellow+ui.Bold+"請輸入值 (直接按 Enter 使用預設值 '%s'): "+ui.Reset, param.DefaultValue)
 	var value string
 	fmt.Scanln(&value)
 

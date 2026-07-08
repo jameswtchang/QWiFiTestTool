@@ -114,11 +114,11 @@ func runDiagnosis(module *models.WiFiModule) bool {
 	// All checks passed
 	if len(result.Errors) == 0 {
 		for {
-			fmt.Println("\n請選擇後續操作:")
-			fmt.Println("[1] 卸載當前驅動")
-			fmt.Println("[2] 卸載當前驅動, 並重新載入驅動")
-			fmt.Println("[0] 返回操作模式")
-			fmt.Print("\n請輸入選項 [0-2]: ")
+			fmt.Println("\n" + ui.Yellow + ui.Bold + "請選擇後續操作:" + ui.Reset)
+			fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 卸載當前驅動")
+			fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 卸載當前驅動, 並重新載入驅動")
+			fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 返回操作模式")
+			fmt.Print("\n" + ui.Yellow + ui.Bold + "請輸入選項 [0-2]: " + ui.Reset)
 
 			var choice string
 			fmt.Scanln(&choice)

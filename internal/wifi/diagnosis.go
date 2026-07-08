@@ -9,6 +9,7 @@ import (
 
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
+	"qwifitesttool/internal/ui"
 )
 
 // DiagnosisResult holds the results of sanity checks
@@ -183,35 +184,47 @@ func readSingleByte(path string) byte {
 
 // Print formats and displays the diagnosis results
 func (dr *DiagnosisResult) Print() {
-	fmt.Println("\n========== 診斷結果 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 診斷結果 ==========" + ui.Reset)
 
 	// Interface
-	fmt.Printf("介面存在: %v\n", dr.InterfaceExists)
-	fmt.Printf("介面狀態: %s\n", dr.InterfaceState)
+	if dr.InterfaceExists {
+		fmt.Printf(ui.Bold+"介面存在: "+ui.Green+"%v"+ui.Reset+"\n", dr.InterfaceExists)
+	} else {
+		fmt.Printf(ui.Bold+"介面存在: "+ui.Red+"%v"+ui.Reset+"\n", dr.InterfaceExists)
+	}
+	fmt.Printf(ui.Bold+"介面狀態: "+ui.Cyan+"%s"+ui.Reset+"\n", dr.InterfaceState)
 
 	// Driver
-	fmt.Printf("驅動已載入: %v\n", dr.DriverLoaded)
-	fmt.Printf("驅動資訊: %s\n", dr.DriverInfo)
+	if dr.DriverLoaded {
+		fmt.Printf(ui.Bold+"驅動已載入: "+ui.Green+"%v"+ui.Reset+"\n", dr.DriverLoaded)
+	} else {
+		fmt.Printf(ui.Bold+"驅動已載入: "+ui.Red+"%v"+ui.Reset+"\n", dr.DriverLoaded)
+	}
+	fmt.Printf(ui.Bold+"驅動資訊: "+ui.Cyan+"%s"+ui.Reset+"\n", dr.DriverInfo)
 
 	// RFKill
-	fmt.Printf("RFKill 封鎖: %v\n", dr.RFKillBlocked)
-	fmt.Printf("RFKill 資訊: %s\n", dr.RFKillInfo)
+	if !dr.RFKillBlocked {
+		fmt.Printf(ui.Bold+"RFKill 封鎖: "+ui.Green+"%v"+ui.Reset+"\n", dr.RFKillBlocked)
+	} else {
+		fmt.Printf(ui.Bold+"RFKill 封鎖: "+ui.Red+"%v"+ui.Reset+"\n", dr.RFKillBlocked)
+	}
+	fmt.Printf(ui.Bold+"RFKill 資訊: "+ui.Cyan+"%s"+ui.Reset+"\n", dr.RFKillInfo)
 
 	// Kernel logs
-	fmt.Println("\n核心日誌 (最近 5 條):")
+	fmt.Println("\n" + ui.Bold + "核心日誌 (最近 5 條):" + ui.Reset)
 	for _, log := range dr.KernelLogs {
-		fmt.Printf("  %s\n", log)
+		fmt.Printf("  "+ui.White+"%s"+ui.Reset+"\n", log)
 	}
 
 	// Errors
 	if len(dr.Errors) > 0 {
-		fmt.Println("\n⚠️  錯誤:")
+		fmt.Println("\n" + ui.Red + ui.Bold + "⚠️  錯誤:" + ui.Reset)
 		for _, err := range dr.Errors {
-			fmt.Printf("  - %s\n", err)
+			fmt.Printf("  "+ui.Red+"- %s"+ui.Reset+"\n", err)
 		}
 	} else {
-		fmt.Println("\n✓ 所有檢查通過")
+		fmt.Println("\n" + ui.Green + ui.Bold + "✓ 所有檢查通過" + ui.Reset)
 	}
 
-	fmt.Println("==============================")
+	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)
 }

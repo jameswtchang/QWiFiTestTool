@@ -45,8 +45,8 @@ QWifiTestTool/
 
 ```bash
 # Android (ARM64)
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o wifi-tool cmd/main.go
-adb push wifi-tool /data/local/tmp/wifi-tool
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o QWifiTestTool cmd/main.go
+adb push QWifiTestTool /data/local/tmp/QWifiTestTool
 ```
 
 ### 2. 準備 Android 二進制檔案
@@ -63,7 +63,7 @@ adb push wifi-tool /data/local/tmp/wifi-tool
 # Android (需要 Root)
 adb shell
 su
-/data/local/tmp/wifi-tool
+/data/local/tmp/QWifiTestTool
 ```
 
 ## 使用方式

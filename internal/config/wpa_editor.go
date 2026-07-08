@@ -10,6 +10,7 @@ import (
 
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
+	"qwifitesttool/internal/ui"
 )
 
 // WpaEditor handles interactive wpa_supplicant.conf editing
@@ -32,11 +33,11 @@ func NewWpaEditor(module *models.WiFiModule, platformInfo *sys.PlatformInfo) *Wp
 // Start begins the interactive editing session
 // Returns (actionTaken, error) - actionTaken is false if user skipped editing
 func (e *WpaEditor) Start() (bool, error) {
-	fmt.Println("\n========== wpa_supplicant.conf 編輯器 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== wpa_supplicant.conf 編輯器 ==========" + ui.Reset)
 
 	// Step 1: Detect config path
 	e.configPath = e.detectConfigPath()
-	fmt.Printf("[INFO] 配置檔案路徑: %s\n", e.configPath)
+	fmt.Printf(ui.Cyan+"[INFO] "+ui.Reset+"配置檔案路徑: %s\n", e.configPath)
 
 	// Step 2: Load or create config
 	content, err := e.loadOrCreateConfig()
@@ -48,11 +49,11 @@ func (e *WpaEditor) Start() (bool, error) {
 	e.displayConfig(content)
 
 	// Step 4: Ask user for action
-	fmt.Println("\n請選擇操作:")
-	fmt.Println("[1] 修改當前配置")
-	fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
-	fmt.Println("[0] 退出不修改")
-	fmt.Print("選擇: ")
+	fmt.Println("\n" + ui.Yellow + ui.Bold + "請選擇操作:" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 修改當前配置")
+	fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 捨棄舊設定，重新生成 (使用 XML 預設值)")
+	fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 退出不修改")
+	fmt.Print(ui.Yellow + ui.Bold + "選擇: " + ui.Reset)
 
 	input, _ := e.reader.ReadString('\n')
 	input = strings.TrimSpace(input)
@@ -68,23 +69,23 @@ func (e *WpaEditor) Start() (bool, error) {
 		}
 	} else if input == "2" {
 		newContent = e.generateDefaultConfig()
-		fmt.Println("[INFO] 已載入 XML 預設配置")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "已載入 XML 預設配置")
 	} else {
-		fmt.Println("[INFO] 未做任何修改")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "未做任何修改")
 		return false, nil
 	}
 
 	// Step 6: Show final config and ask to apply
-	fmt.Println("\n========== 編輯後的配置內容 ==========")
-	fmt.Println(newContent)
-	fmt.Println("======================================")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 編輯後的配置內容 ==========" + ui.Reset)
+	fmt.Println(ui.Green + newContent + ui.Reset)
+	fmt.Println(ui.Blue + ui.Bold + "======================================" + ui.Reset)
 
-	fmt.Print("\n是否要套用新的設定值覆蓋目前的系統配置? [y/N]: ")
+	fmt.Print("\n" + ui.Yellow + ui.Bold + "是否要套用新的設定值覆蓋目前的系統配置? [y/N]: " + ui.Reset)
 	response, _ := e.reader.ReadString('\n')
 	response = strings.TrimSpace(response)
 
 	if response != "y" && response != "Y" {
-		fmt.Println("[INFO] 已放棄修改")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "已放棄修改")
 		return false, nil
 	}
 
@@ -242,9 +243,9 @@ func (e *WpaEditor) getParamFromXML(key string) string {
 
 // displayConfig shows the current configuration
 func (e *WpaEditor) displayConfig(content string) {
-	fmt.Println("\n========== 當前配置內容 ==========")
-	fmt.Println(content)
-	fmt.Println("==================================")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置內容 ==========" + ui.Reset)
+	fmt.Println(ui.Green + content + ui.Reset)
+	fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 }
 
 // interactiveEdit performs menu-based parameter editing
@@ -255,22 +256,22 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 
 	for {
 		// Display current config state
-		fmt.Println("\n========== 當前配置參數 ==========")
+		fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置參數 ==========" + ui.Reset)
 		e.displayConfigMap(configMap)
-		fmt.Println("==================================")
+		fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 
 		// Display parameter menu
-		fmt.Println("\n========== 可編輯參數 ==========")
+		fmt.Println("\n" + ui.Yellow + ui.Bold + "========== 可編輯參數 ==========" + ui.Reset)
 		for i, param := range params {
 			if currentVal, exists := configMap[param.Key]; exists {
-				fmt.Printf("[%d] %-20s (當前: %s)\n", i+1, param.Key, currentVal)
+				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s (當前: "+ui.Green+"%s"+ui.Reset+")\n", i+1, param.Key, currentVal)
 			} else {
-				fmt.Printf("[%d] %-20s (未設定)\n", i+1, param.Key)
+				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"未設定"+ui.Reset+")\n", i+1, param.Key)
 			}
 		}
-		fmt.Println("[0] 完成編輯")
-		fmt.Println("================================")
-		fmt.Print("選擇參數編號: ")
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 完成編輯")
+		fmt.Println(ui.Yellow + ui.Bold + "================================" + ui.Reset)
+		fmt.Print(ui.Yellow + ui.Bold + "選擇參數編號: " + ui.Reset)
 
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)

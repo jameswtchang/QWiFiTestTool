@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"qwifitesttool/internal/logger"
+	"qwifitesttool/internal/ui"
 	"strings"
 	"time"
 )
@@ -133,7 +134,7 @@ func (s *Scanner) parseScanResults(output string) []ScanResult {
 
 // PrintResults displays scan results in a formatted list
 func PrintScanResults(results []ScanResult) {
-	fmt.Println("\n========== 掃描結果 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 掃描結果 ==========" + ui.Reset)
 
 	if len(results) == 0 {
 		fmt.Println("未找到任何網路")
@@ -159,7 +160,7 @@ func PrintScanResults(results []ScanResult) {
 			ssid = ssid[:16] + "..."
 		}
 
-		// Format: [1] SSID: Mozart-AP8   協議: WiFi 5   頻段: 5GHz   安全性: WPA2-Personal   信號: -36 dBm (良好)
+		// Format: [1] SSID: Mozart-AP8   Protocol: WiFi 5   Band: 5GHz   Security: WPA2-Personal   Signal: -36 dBm (Good)
 		fmt.Printf("[%d] SSID: %-17s\t協議: %-8s\t頻段: %-8s\t安全性: %-18s\t信號: %s dBm (%s)\n",
 			i+1,
 			ssid,
@@ -171,7 +172,7 @@ func PrintScanResults(results []ScanResult) {
 		)
 	}
 
-	fmt.Println("==============================")
+	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)
 }
 
 // parseBand determines WiFi band from frequency

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"qwifitesttool/internal/ui"
 )
 
 // PlatformInfo holds platform-specific paths and configurations
@@ -92,9 +94,9 @@ func GetWpaSocketForInterface(basePath, iface string) string {
 
 // Print displays platform information
 func (pi *PlatformInfo) Print() {
-	fmt.Println("\n========== 平台資訊 ==========")
-	fmt.Printf("平台: %s\n", pi.Platform)
-	fmt.Printf("wpa_supplicant Socket: %s\n", pi.WpaSupplicantSocket)
-	fmt.Printf("wpa_cli 路徑: %s\n", pi.WpaCliPath)
-	fmt.Println("==============================")
+	fmt.Println("\n" + ui.Cyan + ui.Bold + "========== 平台資訊 ==========" + ui.Reset)
+	fmt.Printf(ui.Bold+"平台: "+ui.Green+"%s"+ui.Reset+"\n", pi.Platform)
+	fmt.Printf(ui.Bold+"wpa_supplicant Socket: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaSupplicantSocket)
+	fmt.Printf(ui.Bold+"wpa_cli 路徑: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaCliPath)
+	fmt.Println(ui.Cyan + ui.Bold + "==============================" + ui.Reset)
 }

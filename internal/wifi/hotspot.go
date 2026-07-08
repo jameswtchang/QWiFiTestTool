@@ -14,6 +14,7 @@ import (
 	"qwifitesttool/internal/config"
 	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/models"
+	"qwifitesttool/internal/ui"
 )
 
 // Hotspot handles AP mode operations (SoftAP/Hotspot)
@@ -42,7 +43,7 @@ func NewHotspot(module *models.WiFiModule, hostapdPath string) *Hotspot {
 
 // Start initiates the AP mode workflow
 func (h *Hotspot) Start() error {
-	fmt.Println("\n========== AP 模式 (熱點) ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== AP 模式 (熱點) ==========" + ui.Reset)
 
 	// Setup hostapd config
 	if err := h.setupHostapdConfig(); err != nil {
@@ -407,11 +408,11 @@ func (h *Hotspot) startDnsmasq(logPath string) error {
 
 // showAPInfo displays AP configuration details
 func (h *Hotspot) showAPInfo() {
-	fmt.Println("\n========== AP 詳細資訊 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== AP 詳細資訊 ==========" + ui.Reset)
 
 	content, err := os.ReadFile(h.hostapdConfig)
 	if err != nil {
-		fmt.Printf("[WARN] 無法讀取配置: %v\n", err)
+		fmt.Printf(ui.Yellow+"[WARN] "+ui.Reset+"無法讀取配置: %v\n", err)
 		return
 	}
 
@@ -429,9 +430,9 @@ func (h *Hotspot) showAPInfo() {
 		}
 	}
 
-	fmt.Printf("  介面:     %s\n", configMap["interface"])
-	fmt.Printf("  驅動:     %s\n", configMap["driver"])
-	fmt.Printf("  SSID:     %s\n", configMap["ssid"])
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "介面:", configMap["interface"])
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "驅動:", configMap["driver"])
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Cyan+"%s"+ui.Reset+"\n", "SSID:", configMap["ssid"])
 
 	channel := configMap["channel"]
 	band := "2.4GHz"
@@ -440,7 +441,7 @@ func (h *Hotspot) showAPInfo() {
 	} else if configMap["hw_mode"] == "a" {
 		band = "5GHz"
 	}
-	fmt.Printf("  頻段:     %s (channel %s)\n", band, channel)
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", "頻段:", band, channel)
 
 	security := "開放網路"
 	if configMap["wpa"] == "2" {
@@ -454,10 +455,10 @@ func (h *Hotspot) showAPInfo() {
 			security = fmt.Sprintf("%s (%s)", keyMgmt, pairwise)
 		}
 	}
-	fmt.Printf("  安全性:   %s\n", security)
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Yellow+"%s"+ui.Reset+"\n", "安全性:", security)
 
 	if configMap["country_code"] != "" {
-		fmt.Printf("  國家代碼: %s\n", configMap["country_code"])
+		fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "國家代碼:", configMap["country_code"])
 	}
 
 	// Read DHCP info from dnsmasq.conf
@@ -473,13 +474,13 @@ func (h *Hotspot) showAPInfo() {
 			}
 		}
 	}
-	fmt.Printf("  閘道 IP:  %s\n", gateway)
-	fmt.Printf("  DHCP:     %s\n", dhcpRange)
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "閘道 IP:", gateway)
+	fmt.Printf(ui.Bold+"  %-10s "+ui.Green+"%s"+ui.Reset+"\n", "DHCP:", dhcpRange)
 
 	// Show iw interface details
 	ShowInterfaceDetail(h.module.Kernel.GetInterface())
 
-	fmt.Println("==================================")
+	fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 }
 
 // saveDmesg saves dmesg output to log file

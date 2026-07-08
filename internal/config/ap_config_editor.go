@@ -8,12 +8,13 @@ import (
 	"strings"
 
 	"qwifitesttool/internal/models"
+	"qwifitesttool/internal/ui"
 )
 
 // APEditorParams holds the current AP configuration state
 type APEditorParams struct {
 	CountryCode string
-	APType      string // 室內型AP, 室外型AP
+	APType      string // Indoor AP, Outdoor AP
 	Band        string // 2.4G, 5G
 	Mode        string // n, ac, ax
 	Bandwidth   int    // 20, 40, 80, 160
@@ -123,28 +124,28 @@ func (e *APConfigEditor) loadDefaults() {
 
 // Start begins the interactive editing session
 func (e *APConfigEditor) Start() error {
-	fmt.Println("\n╔═══════════════════════════════════════════════════╗")
-	fmt.Println("║     Hostapd / Dnsmasq 配置生成及修改              ║")
-	fmt.Println("╚═══════════════════════════════════════════════════╝")
+	fmt.Println("\n" + ui.Cyan + ui.Bold + "╔═══════════════════════════════════════════════════╗" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "║     Hostapd / Dnsmasq 配置生成及修改              ║" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "╚═══════════════════════════════════════════════════╝" + ui.Reset)
 	fmt.Printf("[模組: %s]\n", e.module.DisplayName)
 
 	// Check if system config exists
 	hostapdPath := "/etc/hostapd.conf"
 	if fileExists(hostapdPath) {
-		fmt.Printf("\n[INFO] 偵測到系統配置: %s\n", hostapdPath)
+		fmt.Printf("\n"+ui.Cyan+"[INFO] "+ui.Reset+"偵測到系統配置: %s\n", hostapdPath)
 		e.parseExistingHostapd(hostapdPath)
 	} else {
-		fmt.Println("\n[INFO] 系統配置不存在，使用 XML 預設值")
+		fmt.Println("\n" + ui.Cyan + "[INFO] " + ui.Reset + "系統配置不存在，使用 XML 預設值")
 	}
 
 	for {
 		e.showCurrentConfig()
 
-		fmt.Println("\n[1] 修改當前配置")
-		fmt.Println("[2] 捨棄舊設定，重新生成 (使用 XML 預設值)")
-		fmt.Println("[3] 從預設情境範本載入 (快速套用 11n/ac/ax 等情境)")
-		fmt.Println("[0] 退出不修改")
-		fmt.Print("選擇操作: ")
+		fmt.Println("\n" + ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 修改當前配置")
+		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 捨棄舊設定，重新生成 (使用 XML 預設值)")
+		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " 從預設情境範本載入 (快速套用 11n/ac/ax 等情境)")
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 退出不修改")
+		fmt.Print(ui.Yellow + ui.Bold + "選擇操作: " + ui.Reset)
 
 		input := e.readLine()
 
@@ -271,17 +272,17 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 
 // showCurrentConfig displays the current parameter state
 func (e *APConfigEditor) showCurrentConfig() {
-	fmt.Println("\n========== 當前配置 (Hostapd) ==========")
-	fmt.Printf("  %-12s %s\n", "國家碼:", e.params.CountryCode)
-	fmt.Printf("  %-12s %s\n", "AP類型:", e.params.APType)
-	fmt.Printf("  %-12s %s\n", "頻段:", e.params.Band)
-	fmt.Printf("  %-12s %s\n", "協議:", e.modeDisplayName(e.params.Mode))
-	fmt.Printf("  %-12s %dMHz\n", "頻寬:", e.params.Bandwidth)
-	fmt.Printf("  %-12s %d\n", "頻道:", e.params.Channel)
-	fmt.Printf("  %-12s %s\n", "SSID:", e.params.SSID)
-	fmt.Printf("  %-12s %s\n", "安全性:", e.params.Security)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置 (Hostapd) ==========" + ui.Reset)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "國家碼:", e.params.CountryCode)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "AP類型:", e.params.APType)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "頻段:", e.params.Band)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "協議:", e.modeDisplayName(e.params.Mode))
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%dMHz"+ui.Reset+"\n", "頻寬:", e.params.Bandwidth)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%d"+ui.Reset+"\n", "頻道:", e.params.Channel)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Cyan+"%s"+ui.Reset+"\n", "SSID:", e.params.SSID)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Yellow+"%s"+ui.Reset+"\n", "安全性:", e.params.Security)
 	if e.params.Security != "Open" {
-		fmt.Printf("  %-12s %s\n", "密碼:", e.params.Password)
+		fmt.Printf(ui.Bold+"  %-12s "+ui.Yellow+"%s"+ui.Reset+"\n", "密碼:", e.params.Password)
 	}
 
 	gateway := "192.168.50.1"
@@ -300,10 +301,10 @@ func (e *APConfigEditor) showCurrentConfig() {
 		}
 	}
 
-	fmt.Println("\n========== 當前配置 (Dnsmasq) ==========")
-	fmt.Printf("  %-12s %s\n", "Gateway:", gateway)
-	fmt.Printf("  %-12s %s - %s\n", "DHCP Range:", dhcpStart, dhcpEnd)
-	fmt.Println("========================================")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置 (Dnsmasq) ==========" + ui.Reset)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s"+ui.Reset+"\n", "Gateway:", gateway)
+	fmt.Printf(ui.Bold+"  %-12s "+ui.Green+"%s - %s"+ui.Reset+"\n", "DHCP Range:", dhcpStart, dhcpEnd)
+	fmt.Println(ui.Blue + ui.Bold + "========================================" + ui.Reset)
 }
 
 func (e *APConfigEditor) modeDisplayName(mode string) string {
@@ -324,18 +325,18 @@ func (e *APConfigEditor) modeDisplayName(mode string) string {
 // editParams provides a submenu to edit individual parameters
 func (e *APConfigEditor) editParams() {
 	for {
-		fmt.Println("\n---------- 修改參數 ----------")
-		fmt.Println("[1] 國家碼")
-		fmt.Println("[2] AP類型")
-		fmt.Println("[3] 頻段")
-		fmt.Println("[4] 協議")
-		fmt.Println("[5] 頻寬")
-		fmt.Println("[6] 頻道")
-		fmt.Println("[7] SSID")
-		fmt.Println("[8] 安全性")
-		fmt.Println("[9] 密碼")
-		fmt.Println("[0] 完成修改")
-		fmt.Print("選擇要修改的項目: ")
+		fmt.Println("\n" + ui.Yellow + ui.Bold + "---------- 修改參數 ----------" + ui.Reset)
+		fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 國家碼")
+		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " AP類型")
+		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " 頻段")
+		fmt.Println(ui.Cyan + ui.Bold + "[4]" + ui.Reset + " 協議")
+		fmt.Println(ui.Cyan + ui.Bold + "[5]" + ui.Reset + " 頻寬")
+		fmt.Println(ui.Cyan + ui.Bold + "[6]" + ui.Reset + " 頻道")
+		fmt.Println(ui.Cyan + ui.Bold + "[7]" + ui.Reset + " SSID")
+		fmt.Println(ui.Cyan + ui.Bold + "[8]" + ui.Reset + " 安全性")
+		fmt.Println(ui.Cyan + ui.Bold + "[9]" + ui.Reset + " 密碼")
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 完成修改")
+		fmt.Print(ui.Yellow + ui.Bold + "選擇要修改的項目: " + ui.Reset)
 
 		input := e.readLine()
 
@@ -689,22 +690,22 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 	dnsmasqPath := "/etc/dnsmasq.conf"
 
 	// Show preview
-	fmt.Println("\n╔═══════════════════════════════════════════════════╗")
-	fmt.Println("║              hostapd.conf 預覽                    ║")
-	fmt.Println("╚═══════════════════════════════════════════════════╝")
-	fmt.Println(hostapdContent)
+	fmt.Println("\n" + ui.Cyan + ui.Bold + "╔═══════════════════════════════════════════════════╗" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "║              hostapd.conf 預覽                    ║" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "╚═══════════════════════════════════════════════════╝" + ui.Reset)
+	fmt.Println(ui.Green + hostapdContent + ui.Reset)
 
-	fmt.Println("╔═══════════════════════════════════════════════════╗")
-	fmt.Println("║              dnsmasq.conf 預覽                    ║")
-	fmt.Println("╚═══════════════════════════════════════════════════╝")
-	fmt.Println(dnsmasqContent)
+	fmt.Println(ui.Cyan + ui.Bold + "╔═══════════════════════════════════════════════════╗" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "║              dnsmasq.conf 預覽                    ║" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "╚═══════════════════════════════════════════════════╝" + ui.Reset)
+	fmt.Println(ui.Green + dnsmasqContent + ui.Reset)
 
 	// Check if files already exist
 	hostapdExists := fileExists(hostapdPath)
 	dnsmasqExists := fileExists(dnsmasqPath)
 
 	if hostapdExists || dnsmasqExists {
-		fmt.Println("\n⚠ 注意: 系統配置檔已存在，寫入將會覆蓋舊有設定:")
+		fmt.Println("\n" + ui.Yellow + ui.Bold + "⚠ 注意: 系統配置檔已存在，寫入將會覆蓋舊有設定:" + ui.Reset)
 		if hostapdExists {
 			fmt.Printf("  - %s\n", hostapdPath)
 		}
@@ -714,7 +715,7 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 	}
 
 	// Prompt to save
-	fmt.Printf("\n確認寫入系統配置? [y/N]: ")
+	fmt.Printf("\n" + ui.Yellow + ui.Bold + "確認寫入系統配置? [y/N]: " + ui.Reset)
 	if response := e.readLine(); response == "y" || response == "Y" {
 		if err := os.WriteFile(hostapdPath, []byte(hostapdContent), 0644); err != nil {
 			return false, fmt.Errorf("寫入 %s 失敗: %w", hostapdPath, err)
@@ -722,10 +723,10 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 		if err := os.WriteFile(dnsmasqPath, []byte(dnsmasqContent), 0644); err != nil {
 			return false, fmt.Errorf("寫入 %s 失敗: %w", dnsmasqPath, err)
 		}
-		fmt.Println("\n✓ 已儲存:")
+		fmt.Println("\n" + ui.Green + ui.Bold + "✓ 已儲存:" + ui.Reset)
 		fmt.Printf("  - %s\n", hostapdPath)
 		fmt.Printf("  - %s\n", dnsmasqPath)
-		fmt.Println("[INFO] AP 模式 (選單 5) 將自動使用此配置\n")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "AP 模式 (選單 5) 將自動使用此配置\n")
 		
 		e.showCurrentConfig()
 		
@@ -1013,12 +1014,12 @@ func (e *APConfigEditor) loadProfileTemplate() (bool, error) {
 		return false, fmt.Errorf("找不到任何情境範本")
 	}
 
-	fmt.Println("\n========== 選擇情境範本 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 選擇情境範本 ==========" + ui.Reset)
 	for i, p := range profiles {
-		fmt.Printf("[%d] %s\n", i+1, p.Name)
+		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %s\n", i+1, p.Name)
 	}
-	fmt.Println("[0] 取消")
-	fmt.Print("選擇範本編號: ")
+	fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 取消")
+	fmt.Print(ui.Yellow + ui.Bold + "選擇範本編號: " + ui.Reset)
 
 	input := e.readLine()
 	idx, err := strconv.Atoi(input)

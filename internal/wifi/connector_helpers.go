@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"qwifitesttool/internal/ui"
 )
 
 // checkConnectionStatus checks if currently connected to a network
@@ -95,7 +97,7 @@ func (c *Connector) checkIPAddress() (bool, string) {
 func (c *Connector) showConnectionInfo() {
 	iface := c.module.Kernel.GetInterface()
 
-	fmt.Println("\n========== 連線資訊 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 連線資訊 ==========" + ui.Reset)
 
 	// Get wpa_supplicant status
 	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
@@ -119,7 +121,12 @@ func (c *Connector) showConnectionInfo() {
 				strings.HasPrefix(line, "pairwise_cipher=") ||
 				strings.HasPrefix(line, "group_cipher=") ||
 				strings.HasPrefix(line, "key_mgmt=") {
-				fmt.Printf("  %s\n", line)
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) == 2 {
+					fmt.Printf(ui.Bold+"  %-16s "+ui.Green+"%s"+ui.Reset+"\n", parts[0]+":", parts[1])
+				} else {
+					fmt.Printf(ui.Green+"  %s"+ui.Reset+"\n", line)
+				}
 			}
 		}
 	}
@@ -127,7 +134,7 @@ func (c *Connector) showConnectionInfo() {
 	// Get IP info from ifconfig/ip
 	cmd = exec.Command("ip", "addr", "show", iface)
 	if output, err := cmd.Output(); err == nil {
-		fmt.Println("\n網路介面資訊:")
+		fmt.Println("\n" + ui.Cyan + ui.Bold + "網路介面資訊:" + ui.Reset)
 		lines := strings.Split(string(output), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -139,5 +146,5 @@ func (c *Connector) showConnectionInfo() {
 		ShowInterfaceDetail(iface)
 	}
 
-	fmt.Println("==============================")
+	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)
 }

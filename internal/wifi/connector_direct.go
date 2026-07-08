@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"qwifitesttool/internal/ui"
 )
 
 // checkIPAddressDirect checks IP without requiring wpa_supplicant to be running
@@ -74,7 +76,7 @@ func (c *Connector) checkConnectionStatusDirect() (bool, string) {
 func (c *Connector) showConnectionInfoDirect() {
 	iface := c.module.Kernel.GetInterface()
 
-	fmt.Println("\n========== 連線資訊 ==========")
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 連線資訊 ==========" + ui.Reset)
 
 	// Get IP info
 	cmd := exec.Command("ip", "addr", "show", iface)
@@ -102,5 +104,5 @@ func (c *Connector) showConnectionInfoDirect() {
 		}
 	}
 
-	fmt.Println("==============================")
+	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)
 }

@@ -23,8 +23,8 @@ go version
 echo.
 
 REM Clean previous builds
-if exist wifi-tool.exe del /q wifi-tool.exe
-if exist wifi-tool del /q wifi-tool
+if exist QWifiTestTool.exe del /q QWifiTestTool.exe
+if exist QWifiTestTool del /q QWifiTestTool
 
 echo.
 echo [INFO] Syncing XML configuration files...
@@ -48,14 +48,14 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo [INFO] Building for Windows (testing)...
 set CGO_ENABLED=0
-go build -o wifi-tool.exe cmd/main.go
+go build -o QWifiTestTool.exe cmd/main.go
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Build failed
     exit /b 1
 )
 
 echo.
-echo [SUCCESS] Build completed: wifi-tool.exe
+echo [SUCCESS] Build completed: QWifiTestTool.exe
 echo.
 
 echo ======================================
@@ -66,13 +66,13 @@ echo Linux x86_64:
 echo   set CGO_ENABLED=0
 echo   set GOOS=linux
 echo   set GOARCH=amd64
-echo   go build -o wifi-tool cmd/main.go
+echo   go build -o QWifiTestTool cmd/main.go
 echo.
 echo Android ARM64:
 echo   set CGO_ENABLED=0
 echo   set GOOS=linux
 echo   set GOARCH=arm64
-echo   go build -o wifi-tool cmd/main.go
+echo   go build -o QWifiTestTool cmd/main.go
 echo.
 
 pause

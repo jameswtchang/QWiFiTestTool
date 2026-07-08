@@ -61,7 +61,7 @@ func parseProfileParams(content string) map[string]string {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
 			value := strings.TrimSpace(parts[1])
-			// Strip inline comments (e.g. "1  # 代表 80 MHz")
+			// Strip inline comments (e.g. "1  # represents 80 MHz")
 			if idx := strings.Index(value, "#"); idx > 0 {
 				value = strings.TrimSpace(value[:idx])
 			}

@@ -55,7 +55,7 @@ func (db *ChannelLookupDB) FindCountry(code string) *CountryEntry {
 	return nil
 }
 
-// GetAPTypes returns available AP types for this country (e.g. "室内型AP", "室外型AP", "所有类型AP")
+// GetAPTypes returns available AP types for this country (e.g. "Indoor AP", "Outdoor AP", "All Types AP")
 func (c *CountryEntry) GetAPTypes() []string {
 	types := make([]string, 0, len(c.APTypes))
 	for t := range c.APTypes {
@@ -72,7 +72,7 @@ func (db *ChannelLookupDB) LookupChannels(countryCode, apType, band string, band
 		return nil
 	}
 
-	// Try exact AP type first, then fall back to "所有类型AP"
+	// Try exact AP type first, then fall back to "All Types AP"
 	apData, ok := country.APTypes[apType]
 	if !ok {
 		apData, ok = country.APTypes["所有类型AP"]

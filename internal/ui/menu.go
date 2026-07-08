@@ -11,24 +11,28 @@ import (
 
 // ShowBanner displays the application banner
 func ShowBanner() {
-	fmt.Println("╔═══════════════════════════════════════════╗")
-	fmt.Println("║     QWifiTestTool - WiFi 配置與測試工具   ║")
-	fmt.Println("║           支援 Linux & Android            ║")
-	fmt.Println("╚═══════════════════════════════════════════╝")
+	fmt.Println(Cyan + Bold + "╔═══════════════════════════════════════════╗" + Reset)
+	fmt.Println(Cyan + Bold + "║     QWifiTestTool - WiFi 配置與測試工具   ║" + Reset)
+	fmt.Println(Cyan + Bold + "║           支援 Linux & Android            ║" + Reset)
+	fmt.Println(Cyan + Bold + "║                版本: V1.0                 ║" + Reset)
+	fmt.Println(Cyan + Bold + "║          Designed by James Chang          ║" + Reset)
+	fmt.Println(Cyan + Bold + "╚═══════════════════════════════════════════╝" + Reset)
 	fmt.Println()
 }
 
 // ShowModuleMenu displays available modules and prompts for selection
 func ShowModuleMenu(config *models.WiFiToolConfig) (*models.WiFiModule, error) {
-	fmt.Println("========== 可用的 WiFi 模組 ==========")
+	fmt.Println(Blue + Bold + "========== 可用的 WiFi 模組 ==========" + Reset)
 
 	modules := config.ListModules()
 	for _, mod := range modules {
-		fmt.Println(mod)
+		modStr := strings.Replace(mod, "[", Cyan+Bold+"[", 1)
+		modStr = strings.Replace(modStr, "]", "]"+Reset, 1)
+		fmt.Println(modStr)
 	}
 
-	fmt.Println("=====================================")
-	fmt.Print("選擇模組編號: ")
+	fmt.Println(Blue + Bold + "=====================================" + Reset)
+	fmt.Print(Yellow + Bold + "選擇模組編號: " + Reset)
 
 	reader := bufio.NewReader(os.Stdin)
 	input, _ := reader.ReadString('\n')
@@ -46,15 +50,15 @@ func ShowModuleMenu(config *models.WiFiToolConfig) (*models.WiFiModule, error) {
 
 // ShowOperationMenu displays operation mode menu
 func ShowOperationMenu() string {
-	fmt.Println("\n========== 操作模式 ==========")
-	fmt.Println("[1] 診斷 (Sanity Check)")
-	fmt.Println("[2] 編輯 wpa_supplicant.conf")
-	fmt.Println("[3] Station 模式 (連接 WiFi)")
-	fmt.Println("[4] Hostapd/Dnsmasq 配置生成及修改")
-	fmt.Println("[5] AP 模式 (建立熱點)")
-	fmt.Println("[0] 退出")
-	fmt.Println("============================")
-	fmt.Print("選擇操作: ")
+	fmt.Println("\n" + Yellow + Bold + "========== 操作模式 ==========" + Reset)
+	fmt.Println(Cyan + Bold + "[1]" + Reset + " 診斷 (Sanity Check)")
+	fmt.Println(Cyan + Bold + "[2]" + Reset + " 編輯 wpa_supplicant.conf")
+	fmt.Println(Cyan + Bold + "[3]" + Reset + " Station 模式 (連接 WiFi)")
+	fmt.Println(Cyan + Bold + "[4]" + Reset + " Hostapd/Dnsmasq 配置生成及修改")
+	fmt.Println(Cyan + Bold + "[5]" + Reset + " AP 模式 (建立熱點)")
+	fmt.Println(Cyan + Bold + "[0]" + Reset + " 退出")
+	fmt.Println(Yellow + Bold + "============================" + Reset)
+	fmt.Print(Yellow + Bold + "選擇操作: " + Reset)
 
 	reader := bufio.NewReader(os.Stdin)
 	input, _ := reader.ReadString('\n')
@@ -63,7 +67,7 @@ func ShowOperationMenu() string {
 
 // PromptContinue asks user if they want to continue
 func PromptContinue() bool {
-	fmt.Print("\n繼續其他操作? [y/N]: ")
+	fmt.Print("\n" + Yellow + Bold + "繼續其他操作? [y/N]: " + Reset)
 
 	reader := bufio.NewReader(os.Stdin)
 	input, _ := reader.ReadString('\n')
@@ -74,10 +78,10 @@ func PromptContinue() bool {
 
 // ShowError displays an error message
 func ShowError(err error) {
-	fmt.Printf("\n❌ 錯誤: %v\n\n", err)
+	fmt.Printf("\n"+Red+Bold+"❌ 錯誤: %v"+Reset+"\n\n", err)
 }
 
 // ShowSuccess displays a success message
 func ShowSuccess(msg string) {
-	fmt.Printf("\n✓ %s\n\n", msg)
+	fmt.Printf("\n"+Green+Bold+"✓ %s"+Reset+"\n\n", msg)
 }

@@ -23,7 +23,7 @@ go version
 echo
 
 # Clean previous builds
-rm -f wifi-tool wifi-tool.exe
+rm -f QWifiTestTool QWifiTestTool.exe
 
 echo ""
 echo "[INFO] Syncing XML configuration files..."
@@ -52,23 +52,23 @@ read -p "Enter choice [1-4]: " choice
 case $choice in
     1)
         echo "[INFO] Building for Linux x86_64..."
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o wifi-tool cmd/main.go
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o QWifiTestTool cmd/main.go
         ;;
     2)
         echo "[INFO] Building for Linux ARM64..."
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o wifi-tool cmd/main.go
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o QWifiTestTool cmd/main.go
         ;;
     3)
         echo "[INFO] Building for Android ARM64..."
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o wifi-tool cmd/main.go
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o QWifiTestTool cmd/main.go
         echo
         echo "[INFO] To deploy to Android:"
-        echo "  adb push wifi-tool /data/local/tmp/"
-        echo "  adb shell chmod +x /data/local/tmp/wifi-tool"
+        echo "  adb push QWifiTestTool /data/local/tmp/"
+        echo "  adb shell chmod +x /data/local/tmp/QWifiTestTool"
         ;;
     4)
         echo "[INFO] Building for current platform..."
-        CGO_ENABLED=0 go build -o wifi-tool cmd/main.go
+        CGO_ENABLED=0 go build -o QWifiTestTool cmd/main.go
         ;;
     *)
         echo "[ERROR] Invalid choice"
@@ -76,13 +76,13 @@ case $choice in
         ;;
 esac
 
-if [ -f wifi-tool ]; then
+if [ -f QWifiTestTool ]; then
     echo
-    echo "[SUCCESS] Build completed: wifi-tool"
-    ls -lh wifi-tool
+    echo "[SUCCESS] Build completed: QWifiTestTool"
+    ls -lh QWifiTestTool
     echo
     echo "[INFO] File type:"
-    file wifi-tool
+    file QWifiTestTool
 else
     echo "[ERROR] Build failed"
     exit 1
