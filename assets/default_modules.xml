@@ -608,7 +608,7 @@
         
         <Kernel>
             <KoName>wlan.ko</KoName>
-            <PreloadKo>wlan_cnss_core_pcie.ko</PreloadKo>
+            <PreloadKo>pcie-dw-rockchip.ko,wlan_cnss_core_pcie.ko</PreloadKo>
             <InsmodArgs>country_code=TW</InsmodArgs>
             <PostLoadCmd>ifconfig wlan0 up</PostLoadCmd>
             <Interface>wlan0</Interface>
@@ -674,6 +674,87 @@
             <Param key="ieee80211n">1</Param>
             <Param key="ieee80211ac">1</Param>
             <Param key="ieee80211ax">1</Param>
+        </APConfig>
+    </Module>
+
+    <!-- Quectel FME170Q-865 (Qualcomm WCN7851-5 Chipset) -->
+    <Module id="quectel_fme170q_865">
+        <DisplayName>Quectel FME170Q-865 (Qualcomm WCN7851-5)</DisplayName>
+        
+        <Kernel>
+            <KoName>wlan.ko</KoName>
+            <PreloadKo>pcie-dw-rockchip.ko,wlan_cnss_core_pcie.ko</PreloadKo>
+            <InsmodArgs>country_code=TW</InsmodArgs>
+            <PostLoadCmd>ifconfig wlan0 up</PostLoadCmd>
+            <Interface>wlan0</Interface>
+            <DriverBackend>nl80211</DriverBackend>
+        </Kernel>
+
+        <StationConfig>
+            <Param key="ctrl_interface">/var/run/wpa_supplicant</Param>
+            <Param key="update_config">1</Param>
+        </StationConfig>
+
+        <APConfig>
+            <Capabilities>
+                <Bands>2.4G,5G,6G</Bands>
+                <Modes>a,b,g,n,ac,ax,be</Modes>
+                <MaxBandwidth>320</MaxBandwidth>
+                <SupportDFS>true</SupportDFS>
+                <SupportWPA3>true</SupportWPA3>
+            </Capabilities>
+
+            <APProfile>
+                <SSID>FME170Q-865_AP</SSID>
+                <Password>12345678</Password>
+                <Security>WPA3</Security>
+                <Band>6G</Band>
+                <Channel>37</Channel>
+            </APProfile>
+
+            <Network>
+                <Gateway>192.168.50.1</Gateway>
+                <Netmask>255.255.255.0</Netmask>
+                <DHCPStart>192.168.50.100</DHCPStart>
+                <DHCPEnd>192.168.50.200</DHCPEnd>
+            </Network>
+
+            <FixedParams>
+                <Param key="beacon_int">100</Param>
+                <Param key="dtim_period">2</Param>
+                <Param key="auth_algs">3</Param>
+                <Param key="sae_pwe">2</Param>
+                <Param key="ieee80211w">2</Param>
+                <Param key="wpa_pairwise">CCMP</Param>
+                <Param key="wpa_group_rekey">600</Param>
+                <Param key="acs_exclude_6ghz_non_psc">1</Param>
+                <!-- 11ax HE parameters -->
+                <Param key="he_bss_color">15</Param>
+                <Param key="he_su_beamformer">1</Param>
+                <Param key="he_su_beamformee">1</Param>
+                <Param key="he_mu_beamformer">1</Param>
+                <Param key="he_default_pe_duration">4</Param>
+                <Param key="he_twt_required">1</Param>
+                <Param key="he_oper_chwidth">2</Param>
+                <Param key="he_oper_centr_freq_seg0_idx">31</Param>
+                <!-- 11be EHT parameters -->
+                <Param key="eht_oper_chwidth">3</Param>
+                <Param key="eht_oper_centr_freq_seg0_idx">31</Param>
+            </FixedParams>
+
+            <Param key="interface">wlan0</Param>
+            <Param key="driver">nl80211</Param>
+            <Param key="ctrl_interface">/var/run/hostapd</Param>
+            <Param key="ctrl_interface_group">0</Param>
+            <Param key="hw_mode">a</Param>
+            <Param key="channel">37</Param>
+            <Param key="ieee80211n">1</Param>
+            <Param key="ieee80211ax">1</Param>
+            <Param key="ieee80211be">1</Param>
+            <Param key="op_class">137</Param>
+            <Param key="wpa">2</Param>
+            <Param key="wpa_passphrase">12345678</Param>
+            <Param key="wpa_key_mgmt">SAE</Param>
         </APConfig>
     </Module>
 </WiFiTool>

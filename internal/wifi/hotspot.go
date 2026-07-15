@@ -219,8 +219,26 @@ func (h *Hotspot) startServices() error {
 		return err
 	}
 
-	// Wait for hostapd to initialize
-	time.Sleep(2 * time.Second)
+	// Wait up to 6 seconds for hostapd to initialize.
+	// PCIe/CNSS based modules (Qualcomm) need extra time for txpower initialization
+	// after beacon is set; USB/SDIO modules (Realtek, MTK) may report 0.00 dBm permanently.
+	isPCIe := strings.Contains(h.module.Kernel.PreloadKo, "pcie") || strings.Contains(h.module.Kernel.PreloadKo, "cnss")
+	for i := 0; i < 6; i++ {
+		time.Sleep(1 * time.Second)
+		out, err := exec.Command("iw", "dev", h.module.Kernel.GetInterface(), "info").Output()
+		if err != nil {
+			continue
+		}
+		outStr := string(out)
+		if !strings.Contains(outStr, "type AP") {
+			continue
+		}
+		// For PCIe modules, also wait until txpower is non-zero
+		if isPCIe && strings.Contains(outStr, "txpower 0.00 dBm") {
+			continue
+		}
+		break
+	}
 
 	// Start dnsmasq
 	if err := h.startDnsmasq(dnsmasqLog); err != nil {
@@ -436,25 +454,64 @@ func (h *Hotspot) showAPInfo() {
 
 	channel := configMap["channel"]
 	band := "2.4GHz"
+	modeStr := ""
 	if configMap["ieee80211ah"] == "1" {
 		band = "Sub-GHz (802.11ah HaLow)"
-	} else if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (configMap["hw_mode"] == "a" && channel == "37") {
+		modeStr = "802.11ah HaLow"
+	} else if configMap["ieee80211be"] == "1" || configMap["op_class"] == "137" {
+		band = "6GHz"
+		bw := "20MHz"
+		if configMap["op_class"] == "137" || configMap["eht_oper_chwidth"] == "3" {
+			bw = "320MHz"
+		} else if configMap["op_class"] == "134" || configMap["eht_oper_chwidth"] == "2" {
+			bw = "160MHz"
+		} else if configMap["op_class"] == "133" {
+			bw = "80MHz"
+		}
+		modeStr = fmt.Sprintf("802.11be WiFi 7 (%s)", bw)
+	} else if configMap["ieee80211ax"] == "1" {
+		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (configMap["hw_mode"] == "a" && channel == "37") {
+			band = "6GHz"
+		} else if configMap["hw_mode"] == "a" {
+			band = "5GHz"
+		}
+		modeStr = "802.11ax WiFi 6"
+	} else if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (configMap["hw_mode"] == "a" && channel == "37") {
 		band = "6GHz"
 	} else if configMap["hw_mode"] == "a" {
 		band = "5GHz"
+		if configMap["ieee80211ac"] == "1" {
+			modeStr = "802.11ac WiFi 5"
+		} else {
+			modeStr = "802.11a/n"
+		}
+	} else {
+		if configMap["ieee80211n"] == "1" {
+			modeStr = "802.11n WiFi 4"
+		} else {
+			modeStr = "802.11b/g"
+		}
 	}
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", ui.AlignLabel("頻段:", 10), band, channel)
+
+	if modeStr != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (channel %s)"+ui.Reset+"\n", ui.AlignLabel("頻段/模式:", 10), band, modeStr, channel)
+	} else {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", ui.AlignLabel("頻段:", 10), band, channel)
+	}
 
 	security := "開放網路"
-	if configMap["wpa"] == "2" {
+	if configMap["wpa"] == "2" || configMap["wpa"] == "3" {
 		keyMgmt := configMap["wpa_key_mgmt"]
 		pairwise := configMap["rsn_pairwise"]
 		if pairwise == "" {
 			pairwise = configMap["wpa_pairwise"]
 		}
-		security = fmt.Sprintf("WPA2-PSK (%s)", pairwise)
-		if keyMgmt != "" && keyMgmt != "WPA-PSK" {
+		if strings.Contains(keyMgmt, "SAE") {
+			security = fmt.Sprintf("WPA3-SAE (%s)", pairwise)
+		} else if keyMgmt != "" && keyMgmt != "WPA-PSK" {
 			security = fmt.Sprintf("%s (%s)", keyMgmt, pairwise)
+		} else {
+			security = fmt.Sprintf("WPA2-PSK (%s)", pairwise)
 		}
 	}
 	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("安全性:", 10), security)

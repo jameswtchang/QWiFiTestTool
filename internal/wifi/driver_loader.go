@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
@@ -16,12 +17,30 @@ import (
 // 2. System common paths
 // 3. Recursive search in /system/lib/modules/ and /lib/modules/
 func LoadDriver(module *models.WiFiModule) error {
+	// Enable rfkill and prepare PCIe bus for PCIe/CNSS-based drivers
+	if strings.Contains(module.Kernel.PreloadKo, "pcie") || strings.Contains(module.Kernel.PreloadKo, "cnss") {
+		fmt.Println("[INFO] 啟用無線電源...")
+		exec.Command("sh", "-c", "echo 1 > /sys/class/rfkill/rfkill*/state 2>/dev/null").Run()
+	}
+
 	// Load prerequisite ko files first (e.g., BSP driver before functional driver)
 	preloads := module.Kernel.GetPreloadKoList()
 	for _, preKo := range preloads {
 		fmt.Printf("[INFO] 載入前置驅動: %s\n", preKo)
 		if err := findAndInsmod(preKo, ""); err != nil {
+			// pcie-dw-rockchip may not exist on non-Rockchip boards; skip gracefully
+			if strings.Contains(preKo, "pcie-dw-") {
+				fmt.Printf("[WARN] 系統無 %s 或載入失敗，略過\n", preKo)
+				continue
+			}
 			return fmt.Errorf("前置驅動載入失敗 %s: %w", preKo, err)
+		}
+		// After loading PCIe host controller, wait for link training then trigger bus rescan
+		if strings.Contains(preKo, "pcie-dw-") {
+			fmt.Println("[INFO] 等候 PCIe Link Training (3 秒)...")
+			time.Sleep(3 * time.Second)
+			exec.Command("sh", "-c", "echo 1 > /sys/bus/pci/rescan 2>/dev/null").Run()
+			time.Sleep(1 * time.Second)
 		}
 	}
 
@@ -30,6 +49,23 @@ func LoadDriver(module *models.WiFiModule) error {
 	fmt.Printf("[INFO] 開始載入驅動: %s\n", koName)
 	if err := findAndInsmod(koName, module.Kernel.InsmodArgs); err != nil {
 		return err
+	}
+
+	// Wait for network interface to appear — only for PCIe/CNSS based drivers (Qualcomm QMI/MHI
+	// firmware download takes ~4-6s). USB/SDIO drivers (Realtek, MTK, AIC) appear almost instantly.
+	if strings.Contains(module.Kernel.PreloadKo, "pcie") || strings.Contains(module.Kernel.PreloadKo, "cnss") {
+		ifName := module.Kernel.Interface
+		if ifName == "" {
+			ifName = "wlan0"
+		}
+		fmt.Printf("[INFO] 等候網路介面 %s 初始化 (最長 8 秒)...\n", ifName)
+		for i := 0; i < 16; i++ {
+			if _, err := os.Stat("/sys/class/net/" + ifName); err == nil {
+				fmt.Printf("[SUCCESS] 網路介面 %s 已就緒\n", ifName)
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
 	// Execute post-load command if defined (e.g., "ifconfig wlan0 up" for Qualcomm)
@@ -122,6 +158,11 @@ func UnloadDriver(module *models.WiFiModule) error {
 	preloads := module.Kernel.GetPreloadKoList()
 	for i := len(preloads) - 1; i >= 0; i-- {
 		preModName := strings.TrimSuffix(filepath.Base(preloads[i]), ".ko")
+		// Never unload PCIe controller or CNSS core — tearing down the bus hangs the kernel
+		if strings.Contains(preModName, "pcie") || strings.Contains(preModName, "cnss") {
+			fmt.Printf("[INFO] 保留底層匯流排驅動: %s\n", preModName)
+			continue
+		}
 		fmt.Printf("[INFO] 卸載前置驅動: %s\n", preModName)
 		cmd := exec.Command(rmmodPath, preModName)
 		fmt.Printf("[DEBUG] 執行命令: %s %s\n", rmmodPath, preModName)
@@ -156,6 +197,11 @@ func insmodDriver(koPath, args string) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Already loaded is not an error
+		if strings.Contains(string(output), "File exists") {
+			fmt.Printf("[INFO] 驅動已載入: %s\n", koPath)
+			return nil
+		}
 		return fmt.Errorf("insmod 失敗: %s - %w", string(output), err)
 	}
 

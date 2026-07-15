@@ -146,3 +146,17 @@ func (c *APCapabilities) HasMode(mode string) bool {
 	}
 	return false
 }
+
+// ExplicitlyHasMode checks if a WiFi mode is explicitly listed in the Modes field.
+// Unlike HasMode, this does NOT fall back to defaults — returns false if Modes is empty.
+func (c *APCapabilities) ExplicitlyHasMode(mode string) bool {
+	if c == nil || c.Modes == "" {
+		return false
+	}
+	for _, m := range strings.Split(c.Modes, ",") {
+		if strings.TrimSpace(m) == mode {
+			return true
+		}
+	}
+	return false
+}

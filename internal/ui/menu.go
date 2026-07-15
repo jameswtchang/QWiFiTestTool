@@ -14,7 +14,7 @@ func ShowBanner() {
 	fmt.Println(Cyan + Bold + "╔═══════════════════════════════════════════╗" + Reset)
 	fmt.Println(Cyan + Bold + "║     QWifiTestTool - WiFi 配置與測試工具   ║" + Reset)
 	fmt.Println(Cyan + Bold + "║           支援 Linux & Android            ║" + Reset)
-	fmt.Println(Cyan + Bold + "║               版本: V1.01                 ║" + Reset)
+	fmt.Println(Cyan + Bold + "║               版本: V1.02                 ║" + Reset)
 	fmt.Println(Cyan + Bold + "║          Designed by James Chang          ║" + Reset)
 	fmt.Println(Cyan + Bold + "╚═══════════════════════════════════════════╝" + Reset)
 	fmt.Println()

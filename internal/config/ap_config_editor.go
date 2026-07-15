@@ -88,6 +88,8 @@ func (e *APConfigEditor) loadDefaults() {
 	if caps != nil {
 		if caps.HasMode("ah") {
 			e.params.Mode = "ah"
+		} else if caps.HasMode("be") {
+			e.params.Mode = "be"
 		} else if caps.HasMode("ax") {
 			e.params.Mode = "ax"
 		} else if caps.HasMode("ac") {
@@ -234,6 +236,8 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 	if configMap["ieee80211ah"] == "1" {
 		e.params.Mode = "ah"
 		e.params.Band = "sub-GHz"
+	} else if configMap["ieee80211be"] == "1" {
+		e.params.Mode = "be"
 	} else if configMap["ieee80211ax"] == "1" {
 		e.params.Mode = "ax"
 	} else if configMap["ieee80211ac"] == "1" {
@@ -250,8 +254,14 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 			e.params.Bandwidth = 20
 		}
 	}
-	if configMap["vht_oper_chwidth"] == "1" {
+	if configMap["vht_oper_chwidth"] == "1" || configMap["he_oper_chwidth"] == "1" || configMap["eht_oper_chwidth"] == "1" {
 		e.params.Bandwidth = 80
+	}
+	if configMap["vht_oper_chwidth"] == "2" || configMap["he_oper_chwidth"] == "2" || configMap["eht_oper_chwidth"] == "2" {
+		e.params.Bandwidth = 160
+	}
+	if configMap["eht_oper_chwidth"] == "3" {
+		e.params.Bandwidth = 320
 	}
 
 	// Security
@@ -473,6 +483,7 @@ func (e *APConfigEditor) editMode() {
 		{"n", "WiFi 4 (n)"},
 		{"ac", "WiFi 5 (ac)"},
 		{"ax", "WiFi 6 (ax)"},
+		{"be", "WiFi 7 (be)"},
 	}
 
 	fmt.Println("\n可用協議:")
@@ -509,12 +520,12 @@ func (e *APConfigEditor) editMode() {
 
 func (e *APConfigEditor) editBandwidth() {
 	caps := e.module.APConfig.Capabilities
-	maxBW := 160
+	maxBW := 320
 	if caps != nil && caps.MaxBandwidth > 0 {
 		maxBW = caps.MaxBandwidth
 	}
 
-	allBW := []int{20, 40, 80, 160}
+	allBW := []int{20, 40, 80, 160, 320}
 	fmt.Println("\n可用頻寬:")
 	var available []int
 
@@ -729,9 +740,9 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 		fmt.Printf("  - %s\n", hostapdPath)
 		fmt.Printf("  - %s\n", dnsmasqPath)
 		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "AP 模式 (選單 5) 將自動使用此配置\n")
-		
+
 		e.showCurrentConfig()
-		
+
 		return true, nil
 	}
 
@@ -775,10 +786,22 @@ func (e *APConfigEditor) generateHostapd() string {
 	switch e.params.Mode {
 	case "ah":
 		sb.WriteString("ieee80211ah=1\n")
+	case "be":
+		sb.WriteString("ieee80211be=1\n")
+		sb.WriteString("ieee80211ax=1\n")
+		if e.params.Band != "6G" && e.params.Band != "6g" {
+			sb.WriteString("ieee80211ac=1\n")
+			sb.WriteString("ieee80211n=1\n")
+		} else if e.module.APConfig.Capabilities != nil && e.module.APConfig.Capabilities.ExplicitlyHasMode("n") {
+			// Some 6GHz 11be chips still require ieee80211n=1 (legacy HT signaling)
+			sb.WriteString("ieee80211n=1\n")
+		}
 	case "ax":
 		sb.WriteString("ieee80211ax=1\n")
 		if e.params.Band != "6G" && e.params.Band != "6g" {
 			sb.WriteString("ieee80211ac=1\n")
+			sb.WriteString("ieee80211n=1\n")
+		} else if e.module.APConfig.Capabilities != nil && e.module.APConfig.Capabilities.HasMode("n") {
 			sb.WriteString("ieee80211n=1\n")
 		}
 	case "ac":
@@ -788,14 +811,40 @@ func (e *APConfigEditor) generateHostapd() string {
 		sb.WriteString("ieee80211n=1\n")
 	}
 
-	// Bandwidth → ht/vht capabilities
+	// Bandwidth → ht/vht/he/eht capabilities
 	if e.params.Band == "6G" || e.params.Band == "6g" {
 		if e.params.Bandwidth >= 80 {
-			sb.WriteString("he_oper_chwidth=1\n")
+			if e.params.Mode == "be" {
+				if e.params.Bandwidth == 320 {
+					sb.WriteString("eht_oper_chwidth=3\n")
+				} else if e.params.Bandwidth == 160 {
+					sb.WriteString("eht_oper_chwidth=2\n")
+				} else {
+					sb.WriteString("eht_oper_chwidth=1\n")
+				}
+			}
+			if e.params.Bandwidth == 160 || e.params.Bandwidth == 320 {
+				sb.WriteString("he_oper_chwidth=2\n")
+			} else {
+				sb.WriteString("he_oper_chwidth=1\n")
+			}
 			centerCh := e.calcHE6GCenterChannel()
 			if centerCh > 0 {
 				sb.WriteString(fmt.Sprintf("he_oper_centr_freq_seg0_idx=%d\n", centerCh))
+				if e.params.Mode == "be" {
+					sb.WriteString(fmt.Sprintf("eht_oper_centr_freq_seg0_idx=%d\n", centerCh))
+				}
 			}
+		}
+		// op_class is required for 6GHz — hostapd uses it to distinguish 6GHz from 5GHz (both hw_mode=a)
+		if e.params.Bandwidth == 320 {
+			sb.WriteString("op_class=137\n") // 320 MHz
+		} else if e.params.Bandwidth == 160 {
+			sb.WriteString("op_class=134\n") // 160 MHz
+		} else if e.params.Bandwidth >= 80 {
+			sb.WriteString("op_class=133\n") // 80 MHz
+		} else {
+			sb.WriteString("op_class=131\n") // 20 MHz
 		}
 		sb.WriteString("wmm_enabled=1\n")
 	} else if e.params.Band != "sub-GHz" {
@@ -820,17 +869,37 @@ func (e *APConfigEditor) generateHostapd() string {
 			}
 		}
 
-		if e.params.Bandwidth >= 80 && (e.params.Mode == "ac" || e.params.Mode == "ax") {
-			sb.WriteString("vht_oper_chwidth=1\n")
-			if e.params.Mode == "ax" {
-				sb.WriteString("he_oper_chwidth=1\n")
+		if e.params.Bandwidth >= 80 && (e.params.Mode == "ac" || e.params.Mode == "ax" || e.params.Mode == "be") {
+			if e.params.Bandwidth == 160 || e.params.Bandwidth == 320 {
+				sb.WriteString("vht_oper_chwidth=2\n")
+			} else {
+				sb.WriteString("vht_oper_chwidth=1\n")
+			}
+			if e.params.Mode == "ax" || e.params.Mode == "be" {
+				if e.params.Bandwidth == 160 || e.params.Bandwidth == 320 {
+					sb.WriteString("he_oper_chwidth=2\n")
+				} else {
+					sb.WriteString("he_oper_chwidth=1\n")
+				}
+			}
+			if e.params.Mode == "be" {
+				if e.params.Bandwidth == 320 {
+					sb.WriteString("eht_oper_chwidth=3\n")
+				} else if e.params.Bandwidth == 160 {
+					sb.WriteString("eht_oper_chwidth=2\n")
+				} else {
+					sb.WriteString("eht_oper_chwidth=1\n")
+				}
 			}
 			// Calculate center frequency segment
 			centerCh := e.calcVHTCenterChannel()
 			if centerCh > 0 {
 				sb.WriteString(fmt.Sprintf("vht_oper_centr_freq_seg0_idx=%d\n", centerCh))
-				if e.params.Mode == "ax" {
+				if e.params.Mode == "ax" || e.params.Mode == "be" {
 					sb.WriteString(fmt.Sprintf("he_oper_centr_freq_seg0_idx=%d\n", centerCh))
+				}
+				if e.params.Mode == "be" {
+					sb.WriteString(fmt.Sprintf("eht_oper_centr_freq_seg0_idx=%d\n", centerCh))
 				}
 			}
 		}
@@ -848,7 +917,11 @@ func (e *APConfigEditor) generateHostapd() string {
 		sb.WriteString("rsn_pairwise=CCMP\n")
 	case "WPA3":
 		sb.WriteString("wpa=2\n")
-		sb.WriteString(fmt.Sprintf("sae_password=%s\n", e.params.Password))
+		if e.module.ID == "quectel_fme170q_865" {
+			sb.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", e.params.Password))
+		} else {
+			sb.WriteString(fmt.Sprintf("sae_password=%s\n", e.params.Password))
+		}
 		sb.WriteString("wpa_key_mgmt=SAE\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
 		sb.WriteString("ieee80211w=2\n")
@@ -865,6 +938,8 @@ func (e *APConfigEditor) generateHostapd() string {
 				"ht_capab": true, "wmm_enabled": true, "country_code": true,
 				"vht_oper_chwidth": true, "vht_oper_centr_freq_seg0_idx": true,
 				"he_oper_chwidth": true, "he_oper_centr_freq_seg0_idx": true,
+				"eht_oper_chwidth": true, "eht_oper_centr_freq_seg0_idx": true,
+				"op_class": true,
 			}
 			if skipKeys[p.Key] {
 				continue
@@ -966,32 +1041,58 @@ func (e *APConfigEditor) generateDnsmasq() string {
 	return sb.String()
 }
 
-// calcVHTCenterChannel calculates VHT center frequency channel for 80MHz
+// calcVHTCenterChannel calculates VHT/HE center frequency channel for 80/160MHz
 func (e *APConfigEditor) calcVHTCenterChannel() int {
 	ch := e.params.Channel
-	// 80MHz channel groups and their center channels
-	groups := [][2]int{
-		{36, 42}, {52, 58}, {100, 106}, {116, 122},
-		{132, 138}, {149, 155},
-	}
-	for _, g := range groups {
-		start := g[0]
-		center := g[1]
-		if ch >= start && ch < start+16 {
-			return center
+	if e.params.Bandwidth == 160 {
+		if ch >= 36 && ch <= 64 {
+			return 50
+		} else if ch >= 100 && ch <= 128 {
+			return 114
+		} else if ch >= 149 && ch <= 177 {
+			return 163
+		}
+	} else {
+		// 80MHz channel groups and their center channels
+		groups := [][2]int{
+			{36, 42}, {52, 58}, {100, 106}, {116, 122},
+			{132, 138}, {149, 155},
+		}
+		for _, g := range groups {
+			start := g[0]
+			center := g[1]
+			if ch >= start && ch < start+16 {
+				return center
+			}
 		}
 	}
 	return 0
 }
 
-// calcHE6GCenterChannel calculates HE center frequency channel for 80MHz in 6GHz
+// calcHE6GCenterChannel calculates HE/EHT center frequency channel in 6GHz
 func (e *APConfigEditor) calcHE6GCenterChannel() int {
 	ch := e.params.Channel
-	// 80MHz center channels in 6GHz: 7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231
-	centers := []int{7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231}
-	for _, c := range centers {
-		if ch >= c-6 && ch <= c+6 {
-			return c
+	if e.params.Bandwidth == 320 {
+		centers := []int{31, 95, 159}
+		for _, c := range centers {
+			if ch >= c-30 && ch <= c+30 {
+				return c
+			}
+		}
+	} else if e.params.Bandwidth == 160 {
+		centers := []int{15, 47, 79, 111, 143, 175, 207}
+		for _, c := range centers {
+			if ch >= c-14 && ch <= c+14 {
+				return c
+			}
+		}
+	} else {
+		// 80MHz center channels in 6GHz: 7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231
+		centers := []int{7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231}
+		for _, c := range centers {
+			if ch >= c-6 && ch <= c+6 {
+				return c
+			}
 		}
 	}
 	return 0
@@ -1088,6 +1189,8 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 	if configMap["ieee80211ah"] == "1" {
 		e.params.Mode = "ah"
 		e.params.Band = "sub-GHz"
+	} else if configMap["ieee80211be"] == "1" {
+		e.params.Mode = "be"
 	} else if configMap["ieee80211ax"] == "1" {
 		e.params.Mode = "ax"
 	} else if configMap["ieee80211ac"] == "1" {
@@ -1110,8 +1213,14 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 		e.params.Bandwidth = 20 // default
 	}
 
-	if configMap["vht_oper_chwidth"] == "1" || configMap["he_oper_chwidth"] == "1" {
+	if configMap["vht_oper_chwidth"] == "1" || configMap["he_oper_chwidth"] == "1" || configMap["eht_oper_chwidth"] == "1" {
 		e.params.Bandwidth = 80
+	}
+	if configMap["vht_oper_chwidth"] == "2" || configMap["he_oper_chwidth"] == "2" || configMap["eht_oper_chwidth"] == "2" {
+		e.params.Bandwidth = 160
+	}
+	if configMap["eht_oper_chwidth"] == "3" {
+		e.params.Bandwidth = 320
 	}
 
 	// Security from profile
@@ -1136,13 +1245,13 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 	managedKeys := map[string]bool{
 		"ssid": true, "channel": true, "hw_mode": true, "country_code": true,
 		"ieee80211n": true, "ieee80211ac": true, "ieee80211ax": true, "ieee80211ah": true,
-		"ieee80211d": true,
-		"wpa": true, "wpa_key_mgmt": true, "sae_password": true, "wpa_passphrase": true,
+		"ieee80211be": true, "ieee80211d": true,
+		"wpa":        true, "wpa_key_mgmt": true, "sae_password": true, "wpa_passphrase": true,
 		"ieee80211w": true, "rsn_pairwise": true,
-		"vht_oper_chwidth": true, "he_oper_chwidth": true,
-		"vht_oper_centr_freq_seg0_idx": true, "he_oper_centr_freq_seg0_idx": true,
-		"wmm_enabled": true,
-		"interface": true, "driver": true,
+		"vht_oper_chwidth": true, "he_oper_chwidth": true, "eht_oper_chwidth": true,
+		"vht_oper_centr_freq_seg0_idx": true, "he_oper_centr_freq_seg0_idx": true, "eht_oper_centr_freq_seg0_idx": true,
+		"op_class": true, "wmm_enabled": true,
+		"interface":   true, "driver": true,
 		// daemon-level params that should not leak into generated config
 		"ctrl_interface": true, "ctrl_interface_group": true,
 	}

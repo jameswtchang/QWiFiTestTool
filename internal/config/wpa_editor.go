@@ -437,12 +437,20 @@ func (e *WpaEditor) saveConfig(content string) error {
 	// Ensure directory exists
 	dir := filepath.Dir(e.configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("無法建立目錄: %w", err)
+		// If mkdir fails due to read-only fs, try remounting
+		exec.Command("mount", "-o", "remount,rw", "/").Run()
+		if err2 := os.MkdirAll(dir, 0755); err2 != nil {
+			return fmt.Errorf("無法建立目錄: %w", err2)
+		}
 	}
 
 	// Write file
 	if err := os.WriteFile(e.configPath, []byte(content), 0600); err != nil {
-		return fmt.Errorf("無法寫入檔案: %w", err)
+		// Try remounting root as rw for embedded Linux with read-only rootfs
+		exec.Command("mount", "-o", "remount,rw", "/").Run()
+		if err2 := os.WriteFile(e.configPath, []byte(content), 0600); err2 != nil {
+			return fmt.Errorf("無法寫入檔案: %w", err2)
+		}
 	}
 
 	return nil

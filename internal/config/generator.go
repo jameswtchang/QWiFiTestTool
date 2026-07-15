@@ -123,7 +123,11 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		sb.WriteString("wpa=2\n")
 		sb.WriteString("rsn_pairwise=CCMP\n")
 		if module.APConfig.APProfile != nil && module.APConfig.APProfile.Security == "WPA3" {
-			sb.WriteString(fmt.Sprintf("sae_password=\"%s\"\n", password))
+			if module.ID == "quectel_fme170q_865" {
+				sb.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", password))
+			} else {
+				sb.WriteString(fmt.Sprintf("sae_password=\"%s\"\n", password))
+			}
 			sb.WriteString("wpa_key_mgmt=SAE\n")
 			sb.WriteString("ieee80211w=2\n")
 		} else {
@@ -150,7 +154,7 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_passphrase" || key == "wpa_key_mgmt" || key == "ieee80211w" {
 			continue
 		}
-		if (band == "6G" || band == "6g") && (key == "ieee80211n" || key == "ieee80211ac" || key == "ht_capab" || key == "vht_capab" || key == "vht_oper_chwidth" || key == "vht_oper_centr_freq_seg0_idx") {
+		if (band == "6G" || band == "6g") && module.ID != "quectel_fme170q_865" && (key == "ieee80211n" || key == "ieee80211ac" || key == "ht_capab" || key == "vht_capab" || key == "vht_oper_chwidth" || key == "vht_oper_centr_freq_seg0_idx") {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))

@@ -80,26 +80,24 @@ func (dr *DiagnosisResult) checkDriver(koName string) {
 		return
 	}
 
-	// Extract module name (remove .ko extension)
-	moduleName := strings.TrimSuffix(koName, ".ko")
+	// Extract module name (remove .ko extension) and normalize hyphens to underscores
+	// (kernel converts hyphens to underscores in /proc/modules)
+	moduleName := strings.ReplaceAll(strings.TrimSuffix(koName, ".ko"), "-", "_")
 
-	// Fuzzy match: check if module name appears in /proc/modules
-	if strings.Contains(string(data), moduleName) {
-		dr.DriverLoaded = true
-
-		// Extract the matching line
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, moduleName) {
-				dr.DriverInfo = strings.TrimSpace(line)
-				break
-			}
+	// Exact match: /proc/modules lines start with "module_name SIZE ..."
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 1 && fields[0] == moduleName {
+			dr.DriverLoaded = true
+			dr.DriverInfo = strings.TrimSpace(line)
+			return
 		}
-	} else {
-		dr.DriverLoaded = false
-		dr.DriverInfo = fmt.Sprintf("Module %s not loaded", moduleName)
-		dr.Errors = append(dr.Errors, fmt.Sprintf("Driver %s is not loaded", moduleName))
 	}
+
+	dr.DriverLoaded = false
+	dr.DriverInfo = fmt.Sprintf("Module %s not loaded", moduleName)
+	dr.Errors = append(dr.Errors, fmt.Sprintf("Driver %s is not loaded", moduleName))
 }
 
 // checkRFKill checks for hardware/software radio blocks
