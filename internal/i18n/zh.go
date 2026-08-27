@@ -4,7 +4,7 @@ var zhMessages = map[string]string{
 	// ===== Banner =====
 	"banner.title":    "QWifiTestTool - WiFi 配置與測試工具",
 	"banner.platform": "支援 Linux & Android",
-	"banner.version":  "版本: V1.03",
+	"banner.version":  "版本: %s",
 	"banner.author":   "Designed by James Chang",
 
 	// ===== Module Menu =====

@@ -4,7 +4,7 @@ var enMessages = map[string]string{
 	// ===== Banner =====
 	"banner.title":    "QWifiTestTool - WiFi Config & Test Tool",
 	"banner.platform": "Supports Linux & Android",
-	"banner.version":  "Version: V1.03",
+	"banner.version":  "Version: %s",
 	"banner.author":   "Designed by James Chang",
 
 	// ===== Module Menu =====

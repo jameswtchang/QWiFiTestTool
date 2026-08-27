@@ -14,9 +14,12 @@ import (
 	"qwifitesttool/internal/wifi"
 )
 
+// Version defines the application version string
+const Version = "V1.03"
+
 func main() {
 	// Show banner
-	ui.ShowBanner()
+	ui.ShowBanner(Version)
 
 	// Language selection: default zh-TW, ask to switch to English
 	fmt.Print("Switch to English? [y/N]: ")
@@ -26,7 +29,7 @@ func main() {
 		i18n.SetLang(i18n.EnUS)
 		// Reprint banner in English
 		fmt.Println()
-		ui.ShowBanner()
+		ui.ShowBanner(Version)
 	}
 
 	// Step 1: Load module configurations

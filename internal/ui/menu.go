@@ -11,11 +11,11 @@ import (
 )
 
 // ShowBanner displays the application banner with dynamic width
-func ShowBanner() {
+func ShowBanner(version string) {
 	lines := []string{
 		i18n.T("banner.title"),
 		i18n.T("banner.platform"),
-		i18n.T("banner.version"),
+		i18n.Tf("banner.version", version),
 		i18n.T("banner.author"),
 	}
 
