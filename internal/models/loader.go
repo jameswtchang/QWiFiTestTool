@@ -84,7 +84,7 @@ func (c *WiFiToolConfig) ListModules() []string {
 	for i, mod := range c.Modules {
 		parts := strings.SplitN(mod.DisplayName, " (", 2)
 		if len(parts) == 2 {
-			result[i] = fmt.Sprintf("[%d] %-18s\t(%s", i+1, parts[0], parts[1])
+			result[i] = fmt.Sprintf("[%d] %-22s (%s", i+1, parts[0], parts[1])
 		} else {
 			result[i] = fmt.Sprintf("[%d] %s", i+1, mod.DisplayName)
 		}
