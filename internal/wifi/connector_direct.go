@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/ui"
 )
 
@@ -76,7 +77,7 @@ func (c *Connector) checkConnectionStatusDirect() (bool, string) {
 func (c *Connector) showConnectionInfoDirect() {
 	iface := c.module.Kernel.GetInterface()
 
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 連線資訊 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("conn.info_title") + " ==========" + ui.Reset)
 
 	// Get IP info
 	cmd := exec.Command("ip", "addr", "show", iface)

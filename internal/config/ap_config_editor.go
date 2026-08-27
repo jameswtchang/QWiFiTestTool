@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/ui"
 )
@@ -36,7 +37,7 @@ type APConfigEditor struct {
 func NewAPConfigEditor(module *models.WiFiModule) (*APConfigEditor, error) {
 	db, err := models.LoadChannelLookup()
 	if err != nil {
-		return nil, fmt.Errorf("載入國家頻道資料庫失敗: %w", err)
+		return nil, fmt.Errorf(i18n.T("ap_ed.db_load_fail"), err)
 	}
 
 	editor := &APConfigEditor{
@@ -55,7 +56,7 @@ func NewAPConfigEditor(module *models.WiFiModule) (*APConfigEditor, error) {
 func (e *APConfigEditor) loadDefaults() {
 	e.params = APEditorParams{
 		CountryCode: "TW",
-		APType:      "室内型AP",
+		APType:      i18n.T("ap_ed.indoor_ap"),
 		Band:        "2.4G",
 		Mode:        "n",
 		Bandwidth:   20,
@@ -127,27 +128,27 @@ func (e *APConfigEditor) loadDefaults() {
 // Start begins the interactive editing session
 func (e *APConfigEditor) Start() error {
 	fmt.Println("\n" + ui.Cyan + ui.Bold + "╔═══════════════════════════════════════════════════╗" + ui.Reset)
-	fmt.Println(ui.Cyan + ui.Bold + "║     Hostapd / Dnsmasq 配置生成及修改              ║" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "║     " + i18n.T("ap_ed.title") + "              ║" + ui.Reset)
 	fmt.Println(ui.Cyan + ui.Bold + "╚═══════════════════════════════════════════════════╝" + ui.Reset)
-	fmt.Printf("[模組: %s]\n", e.module.DisplayName)
+	fmt.Println(i18n.Tf("ap_ed.module_label", e.module.DisplayName))
 
 	// Check if system config exists
 	hostapdPath := "/etc/hostapd.conf"
 	if fileExists(hostapdPath) {
-		fmt.Printf("\n"+ui.Cyan+"[INFO] "+ui.Reset+"偵測到系統配置: %s\n", hostapdPath)
+		fmt.Printf("\n"+ui.Cyan+"[INFO] "+ui.Reset+i18n.Tf("ap_ed.sys_config_found", hostapdPath)+"\n")
 		e.parseExistingHostapd(hostapdPath)
 	} else {
-		fmt.Println("\n" + ui.Cyan + "[INFO] " + ui.Reset + "系統配置不存在，使用 XML 預設值")
+		fmt.Println("\n" + ui.Cyan + "[INFO] " + ui.Reset + i18n.T("ap_ed.sys_config_none"))
 	}
 
 	for {
 		e.showCurrentConfig()
 
-		fmt.Println("\n" + ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 修改當前配置")
-		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 捨棄舊設定，重新生成 (使用 XML 預設值)")
-		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " 從預設情境範本載入 (快速套用 11n/ac/ax 等情境)")
-		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 退出不修改")
-		fmt.Print(ui.Yellow + ui.Bold + "選擇操作: " + ui.Reset)
+		fmt.Println("\n" + ui.Cyan + ui.Bold + "[1]" + ui.Reset + " " + i18n.T("ap_ed.action.1"))
+		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " " + i18n.T("ap_ed.action.2"))
+		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " " + i18n.T("ap_ed.action.3"))
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("ap_ed.action.0"))
+		fmt.Print(ui.Yellow + ui.Bold + i18n.T("ap_ed.action.select") + ui.Reset)
 
 		input := e.readLine()
 
@@ -156,27 +157,27 @@ func (e *APConfigEditor) Start() error {
 			e.editParams()
 			saved, err := e.generateAndPreview()
 			if err != nil {
-				fmt.Printf("\n❌ 錯誤: %v\n", err)
+				fmt.Printf("\n"+i18n.Tf("err.prefix", err)+"\n")
 			} else if saved {
 				return nil
 			}
 		case "2":
 			e.loadDefaults()
-			fmt.Println("[INFO] 已恢復此模組的預設值")
+			fmt.Println(i18n.T("ap_ed.defaults_restored"))
 			saved, err := e.generateAndPreview()
 			if err != nil {
-				fmt.Printf("\n❌ 錯誤: %v\n", err)
+				fmt.Printf("\n"+i18n.Tf("err.prefix", err)+"\n")
 			} else if saved {
 				return nil
 			}
 		case "3":
 			loaded, err := e.loadProfileTemplate()
 			if err != nil {
-				fmt.Printf("\n❌ 載入範本失敗: %v\n", err)
+				fmt.Printf("\n"+i18n.Tf("ap_ed.tpl_load_fail", err)+"\n")
 			} else if loaded {
 				saved, err := e.generateAndPreview()
 				if err != nil {
-					fmt.Printf("\n❌ 錯誤: %v\n", err)
+					fmt.Printf("\n"+i18n.Tf("err.prefix", err)+"\n")
 				} else if saved {
 					return nil
 				}
@@ -184,7 +185,7 @@ func (e *APConfigEditor) Start() error {
 		case "0":
 			return nil
 		default:
-			fmt.Println("❌ 無效選項")
+			fmt.Println(i18n.T("common.invalid"))
 		}
 	}
 }
@@ -284,17 +285,17 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 
 // showCurrentConfig displays the current parameter state
 func (e *APConfigEditor) showCurrentConfig() {
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置 (Hostapd) ==========" + ui.Reset)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("國家碼:", 14), e.params.CountryCode)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("AP類型:", 14), e.params.APType)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("頻段:", 14), e.params.Band)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("協議:", 14), e.modeDisplayName(e.params.Mode))
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%dMHz"+ui.Reset+"\n", ui.AlignLabel("頻寬:", 14), e.params.Bandwidth)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%d"+ui.Reset+"\n", ui.AlignLabel("頻道:", 14), e.params.Channel)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("ap_ed.current_hostapd") + " ==========" + ui.Reset)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.country"), 14), e.params.CountryCode)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.ap_type"), 14), e.params.APType)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.band"), 14), e.params.Band)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.mode"), 14), e.modeDisplayName(e.params.Mode))
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%dMHz"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.bandwidth"), 14), e.params.Bandwidth)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%d"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), e.params.Channel)
 	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 14), e.params.SSID)
-	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("安全性:", 14), e.params.Security)
+	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.security"), 14), e.params.Security)
 	if e.params.Security != "Open" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("密碼:", 14), e.params.Password)
+		fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.password"), 14), e.params.Password)
 	}
 
 	gateway := "192.168.50.1"
@@ -313,7 +314,7 @@ func (e *APConfigEditor) showCurrentConfig() {
 		}
 	}
 
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置 (Dnsmasq) ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("ap_ed.current_dnsmasq") + " ==========" + ui.Reset)
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("Gateway:", 14), gateway)
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s - %s"+ui.Reset+"\n", ui.AlignLabel("DHCP Range:", 14), dhcpStart, dhcpEnd)
 	fmt.Println(ui.Blue + ui.Bold + "========================================" + ui.Reset)
@@ -337,18 +338,18 @@ func (e *APConfigEditor) modeDisplayName(mode string) string {
 // editParams provides a submenu to edit individual parameters
 func (e *APConfigEditor) editParams() {
 	for {
-		fmt.Println("\n" + ui.Yellow + ui.Bold + "---------- 修改參數 ----------" + ui.Reset)
-		fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 國家碼")
-		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " AP類型")
-		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " 頻段")
-		fmt.Println(ui.Cyan + ui.Bold + "[4]" + ui.Reset + " 協議")
-		fmt.Println(ui.Cyan + ui.Bold + "[5]" + ui.Reset + " 頻寬")
-		fmt.Println(ui.Cyan + ui.Bold + "[6]" + ui.Reset + " 頻道")
-		fmt.Println(ui.Cyan + ui.Bold + "[7]" + ui.Reset + " SSID")
-		fmt.Println(ui.Cyan + ui.Bold + "[8]" + ui.Reset + " 安全性")
-		fmt.Println(ui.Cyan + ui.Bold + "[9]" + ui.Reset + " 密碼")
-		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 完成修改")
-		fmt.Print(ui.Yellow + ui.Bold + "選擇要修改的項目: " + ui.Reset)
+		fmt.Println("\n" + ui.Yellow + ui.Bold + "---------- " + i18n.T("ap_ed.edit_title") + " ----------" + ui.Reset)
+		fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " " + i18n.T("ap_ed.edit.1"))
+		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " " + i18n.T("ap_ed.edit.2"))
+		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " " + i18n.T("ap_ed.edit.3"))
+		fmt.Println(ui.Cyan + ui.Bold + "[4]" + ui.Reset + " " + i18n.T("ap_ed.edit.4"))
+		fmt.Println(ui.Cyan + ui.Bold + "[5]" + ui.Reset + " " + i18n.T("ap_ed.edit.5"))
+		fmt.Println(ui.Cyan + ui.Bold + "[6]" + ui.Reset + " " + i18n.T("ap_ed.edit.6"))
+		fmt.Println(ui.Cyan + ui.Bold + "[7]" + ui.Reset + " " + i18n.T("ap_ed.edit.7"))
+		fmt.Println(ui.Cyan + ui.Bold + "[8]" + ui.Reset + " " + i18n.T("ap_ed.edit.8"))
+		fmt.Println(ui.Cyan + ui.Bold + "[9]" + ui.Reset + " " + i18n.T("ap_ed.edit.9"))
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("ap_ed.edit.0"))
+		fmt.Print(ui.Yellow + ui.Bold + i18n.T("ap_ed.edit.select") + ui.Reset)
 
 		input := e.readLine()
 
@@ -374,7 +375,7 @@ func (e *APConfigEditor) editParams() {
 		case "0":
 			return
 		default:
-			fmt.Println("❌ 無效選項")
+			fmt.Println(i18n.T("common.invalid"))
 		}
 	}
 }
@@ -383,7 +384,7 @@ func (e *APConfigEditor) editParams() {
 
 func (e *APConfigEditor) editCountryCode() {
 	codes := e.channelDB.ListCountryCodes()
-	fmt.Printf("\n可用國碼 (%d 個):\n", len(codes))
+	fmt.Printf("\n"+i18n.Tf("ap_ed.cc.available", len(codes))+"\n")
 
 	// Show in columns
 	cols := 10
@@ -395,7 +396,7 @@ func (e *APConfigEditor) editCountryCode() {
 	}
 	fmt.Println()
 
-	fmt.Printf("輸入國碼 [當前: %s]: ", e.params.CountryCode)
+	fmt.Printf(i18n.Tf("ap_ed.cc.input", e.params.CountryCode))
 	input := strings.ToUpper(e.readLine())
 	if input == "" {
 		return
@@ -404,21 +405,21 @@ func (e *APConfigEditor) editCountryCode() {
 	if e.channelDB.FindCountry(input) != nil {
 		e.params.CountryCode = input
 		e.refreshChannels()
-		fmt.Printf("✓ 國碼已設為 %s\n", input)
+		fmt.Println(i18n.Tf("ap_ed.cc.set", input))
 	} else {
-		fmt.Println("❌ 無效的國碼")
+		fmt.Println(i18n.T("ap_ed.cc.invalid"))
 	}
 }
 
 func (e *APConfigEditor) editAPType() {
 	country := e.channelDB.FindCountry(e.params.CountryCode)
 	if country == nil {
-		fmt.Println("❌ 請先選擇有效的國碼")
+		fmt.Println(i18n.T("ap_ed.cc.required"))
 		return
 	}
 
 	types := country.GetAPTypes()
-	fmt.Println("\n可用 AP 類型:")
+	fmt.Println("\n" + i18n.T("ap_ed.apt.available"))
 	for i, t := range types {
 		marker := "  "
 		if t == e.params.APType {
@@ -427,16 +428,16 @@ func (e *APConfigEditor) editAPType() {
 		fmt.Printf("%s[%d] %s\n", marker, i+1, t)
 	}
 
-	fmt.Print("選擇（輸入編號）: ")
+	fmt.Print(i18n.T("common.select_num"))
 	idx, err := strconv.Atoi(e.readLine())
 	if err != nil || idx < 1 || idx > len(types) {
-		fmt.Println("❌ 無效選擇")
+		fmt.Println(i18n.T("common.invalid_sel"))
 		return
 	}
 
 	e.params.APType = types[idx-1]
 	e.refreshChannels()
-	fmt.Printf("✓ AP 類型已設為 %s\n", e.params.APType)
+	fmt.Println(i18n.Tf("ap_ed.apt.set", e.params.APType))
 }
 
 func (e *APConfigEditor) editBand() {
@@ -446,7 +447,7 @@ func (e *APConfigEditor) editBand() {
 		bands = caps.GetBands()
 	}
 
-	fmt.Println("\n可用頻段:")
+	fmt.Println("\n" + i18n.T("ap_ed.band.available"))
 	for i, b := range bands {
 		marker := "  "
 		if strings.TrimSpace(b) == e.params.Band {
@@ -456,21 +457,21 @@ func (e *APConfigEditor) editBand() {
 	}
 
 	if len(bands) == 1 {
-		fmt.Println("[INFO] 此模組僅支援一個頻段")
+		fmt.Println(i18n.T("ap_ed.band.single"))
 		e.params.Band = strings.TrimSpace(bands[0])
 		return
 	}
 
-	fmt.Print("選擇（輸入編號）: ")
+	fmt.Print(i18n.T("common.select_num"))
 	idx, err := strconv.Atoi(e.readLine())
 	if err != nil || idx < 1 || idx > len(bands) {
-		fmt.Println("❌ 無效選擇")
+		fmt.Println(i18n.T("common.invalid_sel"))
 		return
 	}
 
 	e.params.Band = strings.TrimSpace(bands[idx-1])
 	e.refreshChannels()
-	fmt.Printf("✓ 頻段已設為 %s\n", e.params.Band)
+	fmt.Println(i18n.Tf("ap_ed.band.set", e.params.Band))
 }
 
 func (e *APConfigEditor) editMode() {
@@ -486,7 +487,7 @@ func (e *APConfigEditor) editMode() {
 		{"be", "WiFi 7 (be)"},
 	}
 
-	fmt.Println("\n可用協議:")
+	fmt.Println("\n" + i18n.T("ap_ed.mode.available"))
 	var available []struct {
 		id      string
 		display string
@@ -507,15 +508,15 @@ func (e *APConfigEditor) editMode() {
 		fmt.Printf("%s[%d] %s\n", marker, i+1, m.display)
 	}
 
-	fmt.Print("選擇（輸入編號）: ")
+	fmt.Print(i18n.T("common.select_num"))
 	idx, err := strconv.Atoi(e.readLine())
 	if err != nil || idx < 1 || idx > len(available) {
-		fmt.Println("❌ 無效選擇")
+		fmt.Println(i18n.T("common.invalid_sel"))
 		return
 	}
 
 	e.params.Mode = available[idx-1].id
-	fmt.Printf("✓ 協議已設為 %s\n", available[idx-1].display)
+	fmt.Println(i18n.Tf("ap_ed.mode.set", available[idx-1].display))
 }
 
 func (e *APConfigEditor) editBandwidth() {
@@ -526,7 +527,7 @@ func (e *APConfigEditor) editBandwidth() {
 	}
 
 	allBW := []int{20, 40, 80, 160, 320}
-	fmt.Println("\n可用頻寬:")
+	fmt.Println("\n" + i18n.T("ap_ed.bw.available"))
 	var available []int
 
 	for _, bw := range allBW {
@@ -543,16 +544,16 @@ func (e *APConfigEditor) editBandwidth() {
 		fmt.Printf("%s[%d] %dMHz\n", marker, i+1, bw)
 	}
 
-	fmt.Print("選擇（輸入編號）: ")
+	fmt.Print(i18n.T("common.select_num"))
 	idx, err := strconv.Atoi(e.readLine())
 	if err != nil || idx < 1 || idx > len(available) {
-		fmt.Println("❌ 無效選擇")
+		fmt.Println(i18n.T("common.invalid_sel"))
 		return
 	}
 
 	e.params.Bandwidth = available[idx-1]
 	e.refreshChannels()
-	fmt.Printf("✓ 頻寬已設為 %dMHz\n", available[idx-1])
+	fmt.Println(i18n.Tf("ap_ed.bw.set", available[idx-1]))
 }
 
 func (e *APConfigEditor) editChannel() {
@@ -561,11 +562,11 @@ func (e *APConfigEditor) editChannel() {
 	)
 
 	if len(channels) == 0 {
-		fmt.Println("❌ 目前的 國碼/AP類型/頻段/頻寬 組合無可用頻道")
+		fmt.Println(i18n.T("ap_ed.ch.none"))
 		return
 	}
 
-	fmt.Println("\n可用頻道:")
+	fmt.Println("\n" + i18n.T("ap_ed.ch.available"))
 	cols := 10
 	for i, ch := range channels {
 		if ch == e.params.Channel {
@@ -579,7 +580,7 @@ func (e *APConfigEditor) editChannel() {
 	}
 	fmt.Println()
 
-	fmt.Printf("輸入頻道號碼 [當前: %d]: ", e.params.Channel)
+	fmt.Printf(i18n.Tf("ap_ed.ch.input", e.params.Channel))
 	input := e.readLine()
 	if input == "" {
 		return
@@ -587,7 +588,7 @@ func (e *APConfigEditor) editChannel() {
 
 	ch, err := strconv.Atoi(input)
 	if err != nil {
-		fmt.Println("❌ 無效的頻道")
+		fmt.Println(i18n.T("ap_ed.ch.invalid"))
 		return
 	}
 
@@ -600,19 +601,19 @@ func (e *APConfigEditor) editChannel() {
 		}
 	}
 	if !valid {
-		fmt.Println("⚠ 此頻道不在可用清單中，仍然設定")
+		fmt.Println(i18n.T("ap_ed.ch.not_in_list"))
 	}
 
 	e.params.Channel = ch
-	fmt.Printf("✓ 頻道已設為 %d\n", ch)
+	fmt.Println(i18n.Tf("ap_ed.ch.set", ch))
 }
 
 func (e *APConfigEditor) editSSID() {
-	fmt.Printf("輸入 SSID [當前: %s]: ", e.params.SSID)
+	fmt.Printf(i18n.Tf("ap_ed.ssid.input", e.params.SSID))
 	input := e.readLine()
 	if input != "" {
 		e.params.SSID = input
-		fmt.Printf("✓ SSID 已設為 %s\n", input)
+		fmt.Println(i18n.Tf("ap_ed.ssid.set", input))
 	}
 }
 
@@ -623,7 +624,7 @@ func (e *APConfigEditor) editSecurity() {
 		options = append(options, "WPA3")
 	}
 
-	fmt.Println("\n安全性選項:")
+	fmt.Println("\n" + i18n.T("ap_ed.sec.available"))
 	for i, opt := range options {
 		marker := "  "
 		if opt == e.params.Security {
@@ -632,10 +633,10 @@ func (e *APConfigEditor) editSecurity() {
 		fmt.Printf("%s[%d] %s\n", marker, i+1, opt)
 	}
 
-	fmt.Print("選擇（輸入編號）: ")
+	fmt.Print(i18n.T("common.select_num"))
 	idx, err := strconv.Atoi(e.readLine())
 	if err != nil || idx < 1 || idx > len(options) {
-		fmt.Println("❌ 無效選擇")
+		fmt.Println(i18n.T("common.invalid_sel"))
 		return
 	}
 
@@ -643,17 +644,17 @@ func (e *APConfigEditor) editSecurity() {
 	if e.params.Security == "Open" {
 		e.params.Password = ""
 	}
-	fmt.Printf("✓ 安全性已設為 %s\n", options[idx-1])
+	fmt.Println(i18n.Tf("ap_ed.sec.set", options[idx-1]))
 }
 
 func (e *APConfigEditor) editPassword() {
 	if e.params.Security == "Open" {
-		fmt.Println("[INFO] 安全性為 Open 時無需密碼")
+		fmt.Println(i18n.T("ap_ed.pw.open_no_need"))
 		return
 	}
 
 	for {
-		fmt.Printf("輸入密碼 [當前: %s]: ", e.params.Password)
+		fmt.Printf(i18n.Tf("ap_ed.pw.input", e.params.Password))
 		input := e.readLine()
 
 		if input == "" {
@@ -661,12 +662,12 @@ func (e *APConfigEditor) editPassword() {
 		}
 
 		if len(input) < 8 || len(input) > 63 {
-			fmt.Println("❌ 錯誤: WPA 密碼長度必須介於 8 到 63 個字元之間")
+			fmt.Println(i18n.T("ap_ed.pw.length_err"))
 			continue
 		}
 
 		e.params.Password = input
-		fmt.Printf("✓ 密碼已更新\n")
+		fmt.Println(i18n.T("ap_ed.pw.set"))
 		break
 	}
 }
@@ -687,7 +688,7 @@ func (e *APConfigEditor) refreshChannels() {
 		}
 		if !valid {
 			e.params.Channel = channels[0]
-			fmt.Printf("[INFO] 頻道已自動調整為 %d\n", e.params.Channel)
+			fmt.Println(i18n.Tf("ap_ed.ch.auto_adjust", e.params.Channel))
 		}
 	}
 }
@@ -704,12 +705,12 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 
 	// Show preview
 	fmt.Println("\n" + ui.Cyan + ui.Bold + "╔═══════════════════════════════════════════════════╗" + ui.Reset)
-	fmt.Println(ui.Cyan + ui.Bold + "║              hostapd.conf 預覽                    ║" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "║              " + i18n.T("ap_ed.preview.hostapd") + "                    ║" + ui.Reset)
 	fmt.Println(ui.Cyan + ui.Bold + "╚═══════════════════════════════════════════════════╝" + ui.Reset)
 	fmt.Println(ui.Green + hostapdContent + ui.Reset)
 
 	fmt.Println(ui.Cyan + ui.Bold + "╔═══════════════════════════════════════════════════╗" + ui.Reset)
-	fmt.Println(ui.Cyan + ui.Bold + "║              dnsmasq.conf 預覽                    ║" + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "║              " + i18n.T("ap_ed.preview.dnsmasq") + "                    ║" + ui.Reset)
 	fmt.Println(ui.Cyan + ui.Bold + "╚═══════════════════════════════════════════════════╝" + ui.Reset)
 	fmt.Println(ui.Green + dnsmasqContent + ui.Reset)
 
@@ -718,7 +719,7 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 	dnsmasqExists := fileExists(dnsmasqPath)
 
 	if hostapdExists || dnsmasqExists {
-		fmt.Println("\n" + ui.Yellow + ui.Bold + "⚠ 注意: 系統配置檔已存在，寫入將會覆蓋舊有設定:" + ui.Reset)
+		fmt.Println("\n" + ui.Yellow + ui.Bold + i18n.T("ap_ed.overwrite_warn") + ui.Reset)
 		if hostapdExists {
 			fmt.Printf("  - %s\n", hostapdPath)
 		}
@@ -728,18 +729,18 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 	}
 
 	// Prompt to save
-	fmt.Printf("\n" + ui.Yellow + ui.Bold + "確認寫入系統配置? [y/N]: " + ui.Reset)
+	fmt.Printf("\n" + ui.Yellow + ui.Bold + i18n.T("ap_ed.save_confirm") + ui.Reset)
 	if response := e.readLine(); response == "y" || response == "Y" {
 		if err := os.WriteFile(hostapdPath, []byte(hostapdContent), 0644); err != nil {
-			return false, fmt.Errorf("寫入 %s 失敗: %w", hostapdPath, err)
+			return false, fmt.Errorf(i18n.T("ap_ed.write_fail"), hostapdPath, err)
 		}
 		if err := os.WriteFile(dnsmasqPath, []byte(dnsmasqContent), 0644); err != nil {
-			return false, fmt.Errorf("寫入 %s 失敗: %w", dnsmasqPath, err)
+			return false, fmt.Errorf(i18n.T("ap_ed.write_fail"), dnsmasqPath, err)
 		}
-		fmt.Println("\n" + ui.Green + ui.Bold + "✓ 已儲存:" + ui.Reset)
+		fmt.Println("\n" + ui.Green + ui.Bold + i18n.T("ap_ed.saved") + ui.Reset)
 		fmt.Printf("  - %s\n", hostapdPath)
 		fmt.Printf("  - %s\n", dnsmasqPath)
-		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "AP 模式 (選單 5) 將自動使用此配置\n")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + i18n.T("ap_ed.saved_hint") + "\n")
 
 		e.showCurrentConfig()
 
@@ -1136,20 +1137,20 @@ func (e *APConfigEditor) loadProfileTemplate() (bool, error) {
 		return false, err
 	}
 	if len(profiles) == 0 {
-		return false, fmt.Errorf("找不到任何情境範本")
+		return false, fmt.Errorf(i18n.T("ap_ed.tpl.none"))
 	}
 
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 選擇情境範本 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("ap_ed.tpl.title") + " ==========" + ui.Reset)
 	for i, p := range profiles {
 		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %s\n", i+1, p.Name)
 	}
-	fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 取消")
-	fmt.Print(ui.Yellow + ui.Bold + "選擇範本編號: " + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("ap_ed.tpl.cancel"))
+	fmt.Print(ui.Yellow + ui.Bold + i18n.T("ap_ed.tpl.select") + ui.Reset)
 
 	input := e.readLine()
 	idx, err := strconv.Atoi(input)
 	if err != nil || idx < 0 || idx > len(profiles) {
-		return false, fmt.Errorf("無效選擇")
+		return false, fmt.Errorf(i18n.T("ap_ed.tpl.invalid"))
 	}
 	if idx == 0 {
 		return false, nil // cancelled, not an error
@@ -1157,7 +1158,7 @@ func (e *APConfigEditor) loadProfileTemplate() (bool, error) {
 
 	selected := profiles[idx-1]
 	e.applyProfileParams(selected.ParsedParams)
-	fmt.Printf("\n✓ 成功載入範本: %s\n", selected.Name)
+	fmt.Println(i18n.Tf("ap_ed.tpl.loaded", selected.Name))
 	return true, nil
 }
 

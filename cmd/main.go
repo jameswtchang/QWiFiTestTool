@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"qwifitesttool/internal/config"
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
 	"qwifitesttool/internal/ui"
@@ -15,14 +18,26 @@ func main() {
 	// Show banner
 	ui.ShowBanner()
 
+	// Language selection: default zh-TW, ask to switch to English
+	fmt.Print("Switch to English? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	langInput, _ := reader.ReadString('\n')
+	if strings.TrimSpace(strings.ToLower(langInput)) == "y" {
+		i18n.SetLang(i18n.EnUS)
+		// Reprint banner in English
+		fmt.Println()
+		ui.ShowBanner()
+	}
+
 	// Step 1: Load module configurations
-	fmt.Println("[INFO] 載入模組配置...")
+	fmt.Println(i18n.T("info.loading_modules"))
 	config, err := models.LoadModules()
 	if err != nil {
-		ui.ShowError(fmt.Errorf("failed to load modules: %w", err))
+		ui.ShowError(fmt.Errorf(i18n.T("err.load_modules"), err))
 		os.Exit(1)
 	}
-	fmt.Printf("[INFO] 已載入 %d 個模組\n\n", len(config.Modules))
+	fmt.Println(i18n.Tf("info.modules_loaded", len(config.Modules)))
+	fmt.Println()
 
 	// Step 2: Module selection
 	module, err := ui.ShowModuleMenu(config)
@@ -31,12 +46,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("\n[INFO] 已選擇模組: %s\n", module.DisplayName)
+	fmt.Println(i18n.Tf("info.module_selected", module.DisplayName))
 
 	// Step 3: Binary manager and platform info
 	binMgr := sys.NewBinaryManager()
 	if err := binMgr.Initialize(); err != nil {
-		ui.ShowError(fmt.Errorf("failed to initialize binaries: %w", err))
+		ui.ShowError(fmt.Errorf(i18n.T("err.init_binaries"), err))
 		os.Exit(1)
 	}
 
@@ -74,14 +89,14 @@ func main() {
 			runAPMode(module, binMgr)
 			continue
 		case "0":
-			fmt.Println("再見!")
+			fmt.Println(i18n.T("prompt.goodbye"))
 			return
 		default:
-			ui.ShowError(fmt.Errorf("無效的選項"))
+			ui.ShowError(fmt.Errorf(i18n.T("menu.op.invalid")))
 		}
 
 		if !ui.PromptContinue() {
-			fmt.Println("再見!")
+			fmt.Println(i18n.T("prompt.goodbye"))
 			break
 		}
 	}
@@ -89,22 +104,22 @@ func main() {
 
 // runDiagnosis performs diagnostic checks, returns true if all checks passed
 func runDiagnosis(module *models.WiFiModule) bool {
-	fmt.Println("\n[INFO] 執行診斷檢查...")
+	fmt.Println(i18n.T("info.run_diagnosis"))
 	result := wifi.RunDiagnosis(module)
 	result.Print()
 
 	// If driver is not loaded, offer to load it
 	if !result.DriverLoaded {
-		fmt.Print("\n驅動未載入。是否嘗試載入驅動? [y/N]: ")
+		fmt.Print(i18n.T("prompt.load_driver"))
 		var response string
 		fmt.Scanln(&response)
 
 		if response == "y" || response == "Y" {
 			if err := wifi.LoadDriver(module); err != nil {
-				ui.ShowError(fmt.Errorf("驅動載入失敗: %w", err))
+				ui.ShowError(fmt.Errorf(i18n.T("err.driver_load_fail"), err))
 			} else {
 				// Re-run diagnosis after loading driver
-				fmt.Println("\n[INFO] 重新執行診斷...")
+				fmt.Println(i18n.T("info.rerun_diagnosis"))
 				result = wifi.RunDiagnosis(module)
 				result.Print()
 			}
@@ -114,11 +129,11 @@ func runDiagnosis(module *models.WiFiModule) bool {
 	// All checks passed
 	if len(result.Errors) == 0 {
 		for {
-			fmt.Println("\n" + ui.Yellow + ui.Bold + "請選擇後續操作:" + ui.Reset)
-			fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 卸載當前驅動")
-			fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 卸載當前驅動, 並重新載入驅動")
-			fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 返回操作模式")
-			fmt.Print("\n" + ui.Yellow + ui.Bold + "請輸入選項 [0-2]: " + ui.Reset)
+			fmt.Println("\n" + ui.Yellow + ui.Bold + i18n.T("diag.post.title") + ui.Reset)
+			fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " " + i18n.T("diag.post.1"))
+			fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " " + i18n.T("diag.post.2"))
+			fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("diag.post.0"))
+			fmt.Print("\n" + ui.Yellow + ui.Bold + i18n.T("diag.post.select") + ui.Reset)
 
 			var choice string
 			fmt.Scanln(&choice)
@@ -126,26 +141,26 @@ func runDiagnosis(module *models.WiFiModule) bool {
 			switch choice {
 			case "1":
 				if err := wifi.UnloadDriver(module); err != nil {
-					ui.ShowError(fmt.Errorf("卸載驅動失敗: %w", err))
+					ui.ShowError(fmt.Errorf(i18n.T("err.unload_driver"), err))
 				} else {
-					fmt.Println("[INFO] 驅動已成功卸載。")
+					fmt.Println(i18n.T("info.driver_unloaded"))
 				}
 				return true
 			case "2":
 				if err := wifi.UnloadDriver(module); err != nil {
-					ui.ShowError(fmt.Errorf("卸載驅動失敗: %w", err))
+					ui.ShowError(fmt.Errorf(i18n.T("err.unload_driver"), err))
 				} else {
 					if err := wifi.LoadDriver(module); err != nil {
-						ui.ShowError(fmt.Errorf("載入驅動失敗: %w", err))
+						ui.ShowError(fmt.Errorf(i18n.T("err.reload_driver"), err))
 					} else {
-						fmt.Println("[INFO] 驅動已成功重新載入。")
+						fmt.Println(i18n.T("info.driver_reloaded"))
 					}
 				}
 				return true
 			case "0":
 				return true
 			default:
-				fmt.Println("無效選項，請重新輸入。")
+				fmt.Println(i18n.T("diag.post.invalid"))
 			}
 		}
 	}
@@ -175,20 +190,20 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 
 	// If user chose to keep existing connection, don't stop the daemon
 	if keepRunning {
-		fmt.Println("\n[INFO] wpa_supplicant 持續運行中，連線已保持")
+		fmt.Println(i18n.T("info.wpa_running"))
 		return
 	}
 
 	// For new connections, ask if user wants to disconnect
-	fmt.Print("\n是否斷開連線並停止 wpa_supplicant? [y/N]: ")
+	fmt.Print(i18n.T("prompt.disconnect"))
 	var response string
 	fmt.Scanln(&response)
 
 	if response == "y" || response == "Y" {
-		fmt.Println("[INFO] 斷開連線...")
+		fmt.Println(i18n.T("info.disconnecting"))
 		connector.Stop()
 	} else {
-		fmt.Println("[INFO] 保持連線，wpa_supplicant 持續運行")
+		fmt.Println(i18n.T("info.keep_connection"))
 	}
 }
 
@@ -230,3 +245,4 @@ func runAPMode(module *models.WiFiModule, binMgr *sys.BinaryManager) {
 		return
 	}
 }
+

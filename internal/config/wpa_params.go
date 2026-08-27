@@ -3,90 +3,105 @@ package config
 import (
 	"fmt"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/ui"
 )
 
 // WpaParam represents a wpa_supplicant configuration parameter
 type WpaParam struct {
 	Key             string
-	Description     string
-	SuggestedValues []string
+	DescriptionKey  string
+	SuggestedKeys   []string // i18n keys for suggested values
 	DefaultValue    string
 	Example         string
+}
+
+// Description returns the translated description
+func (p WpaParam) Description() string {
+	return i18n.T(p.DescriptionKey)
+}
+
+// SuggestedValues returns translated suggested values
+func (p WpaParam) SuggestedValues() []string {
+	result := make([]string, len(p.SuggestedKeys))
+	for i, k := range p.SuggestedKeys {
+		result[i] = i18n.T(k)
+	}
+	return result
 }
 
 // GetWpaParams returns all supported wpa_supplicant parameters with descriptions
 func GetWpaParams() []WpaParam {
 	return []WpaParam{
 		{
-			Key:             "update_config",
-			Description:     "允許 wpa_cli/wpa_gui 動態更新配置檔案",
-			SuggestedValues: []string{"0 (禁用)", "1 (啟用)"},
-			DefaultValue:    "1",
-			Example:         "update_config=1",
+			Key:            "update_config",
+			DescriptionKey: "wpa.update_config.desc",
+			SuggestedKeys:  []string{"wpa.update_config.s0", "wpa.update_config.s1"},
+			DefaultValue:   "1",
+			Example:        "update_config=1",
 		},
 		{
-			Key:             "ap_scan",
-			Description:     "AP 掃描模式 (0=由驅動控制, 1=由wpa_supplicant控制, 2=混合模式)",
-			SuggestedValues: []string{"0", "1", "2"},
-			DefaultValue:    "1",
-			Example:         "ap_scan=1",
+			Key:            "ap_scan",
+			DescriptionKey: "wpa.ap_scan.desc",
+			SuggestedKeys:  []string{"0", "1", "2"},
+			DefaultValue:   "1",
+			Example:        "ap_scan=1",
 		},
 		{
-			Key:             "eapol_version",
-			Description:     "IEEE 802.1X/EAPOL 協議版本",
-			SuggestedValues: []string{"1 (IEEE 802.1X-2001)", "2 (IEEE 802.1X-2004)"},
-			DefaultValue:    "1",
-			Example:         "eapol_version=1",
+			Key:            "eapol_version",
+			DescriptionKey: "wpa.eapol_version.desc",
+			SuggestedKeys:  []string{"wpa.eapol_version.s1", "wpa.eapol_version.s2"},
+			DefaultValue:   "1",
+			Example:        "eapol_version=1",
 		},
 		{
-			Key:             "fast_reauth",
-			Description:     "EAP 快速重新認證 (僅用於企業網路)",
-			SuggestedValues: []string{"0 (禁用)", "1 (啟用)"},
-			DefaultValue:    "1",
-			Example:         "fast_reauth=1",
+			Key:            "fast_reauth",
+			DescriptionKey: "wpa.fast_reauth.desc",
+			SuggestedKeys:  []string{"wpa.update_config.s0", "wpa.update_config.s1"},
+			DefaultValue:   "1",
+			Example:        "fast_reauth=1",
 		},
 		{
-			Key:             "pmf",
-			Description:     "受保護管理框架 (Protected Management Frames) - 802.11w",
-			SuggestedValues: []string{"0 (禁用)", "1 (可選)", "2 (必需)"},
-			DefaultValue:    "1",
-			Example:         "pmf=1",
+			Key:            "pmf",
+			DescriptionKey: "wpa.pmf.desc",
+			SuggestedKeys:  []string{"wpa.pmf.s0", "wpa.pmf.s1", "wpa.pmf.s2"},
+			DefaultValue:   "1",
+			Example:        "pmf=1",
 		},
 		{
-			Key:             "wowlan_triggers",
-			Description:     "Wake-on-WLAN 觸發條件 (斷線時喚醒)",
-			SuggestedValues: []string{"any", "disconnect", "magic_pkt", "gtk_rekey_failure"},
-			DefaultValue:    "any",
-			Example:         "wowlan_triggers=any",
+			Key:            "wowlan_triggers",
+			DescriptionKey: "wpa.wowlan.desc",
+			SuggestedKeys:  []string{"any", "disconnect", "magic_pkt", "gtk_rekey_failure"},
+			DefaultValue:   "any",
+			Example:        "wowlan_triggers=any",
 		},
 		{
-			Key:             "p2p_add_cli_chan",
-			Description:     "P2P 客戶端通道添加優先級",
-			SuggestedValues: []string{"0 (禁用)", "1 (啟用)"},
-			DefaultValue:    "0",
-			Example:         "p2p_add_cli_chan=0",
+			Key:            "p2p_add_cli_chan",
+			DescriptionKey: "wpa.p2p_add.desc",
+			SuggestedKeys:  []string{"wpa.update_config.s0", "wpa.update_config.s1"},
+			DefaultValue:   "0",
+			Example:        "p2p_add_cli_chan=0",
 		},
 		{
-			Key:             "sae_pwe",
-			Description:     "SAE 密碼元素生成方法 (WPA3安全性)",
-			SuggestedValues: []string{"0 (hunting-and-pecking)", "1 (hash-to-element)", "2 (兩者)"},
-			DefaultValue:    "2",
-			Example:         "sae_pwe=2",
+			Key:            "sae_pwe",
+			DescriptionKey: "wpa.sae_pwe.desc",
+			SuggestedKeys:  []string{"0 (hunting-and-pecking)", "1 (hash-to-element)", "wpa.sae_pwe.s2"},
+			DefaultValue:   "2",
+			Example:        "sae_pwe=2",
 		},
 		{
-			Key:             "p2p_disabled",
-			Description:     "禁用 Wi-Fi Direct (P2P) 功能",
-			SuggestedValues: []string{"0 (啟用P2P)", "1 (禁用P2P)"},
-			DefaultValue:    "1",
-			Example:         "p2p_disabled=1",
+			Key:            "p2p_disabled",
+			DescriptionKey: "wpa.p2p_disabled.desc",
+			SuggestedKeys:  []string{"wpa.p2p_disabled.s0", "wpa.p2p_disabled.s1"},
+			DefaultValue:   "1",
+			Example:        "p2p_disabled=1",
 		},
 		{
-			Key:             "country",
-			Description:     "國家/地區代碼 (影響頻道和功率限制)",
-			SuggestedValues: []string{"US", "CN", "TW", "JP", "EU"},
-			DefaultValue:    "US",
-			Example:         "country=US",
+			Key:            "country",
+			DescriptionKey: "wpa.country.desc",
+			SuggestedKeys:  []string{"US", "CN", "TW", "JP", "EU"},
+			DefaultValue:   "US",
+			Example:        "country=US",
 		},
 	}
 }
@@ -94,12 +109,12 @@ func GetWpaParams() []WpaParam {
 // PromptParamEdit prompts user to edit a specific parameter
 func PromptParamEdit(param WpaParam) (string, bool) {
 	fmt.Printf("\n"+ui.Cyan+ui.Bold+"=== %s ==="+ui.Reset+"\n", param.Key)
-	fmt.Printf(ui.Bold+"說明: "+ui.White+"%s"+ui.Reset+"\n", param.Description)
-	fmt.Printf(ui.Bold+"建議值: "+ui.Green+"%v"+ui.Reset+"\n", param.SuggestedValues)
-	fmt.Printf(ui.Bold+"預設值: "+ui.Cyan+"%s"+ui.Reset+"\n", param.DefaultValue)
-	fmt.Printf(ui.Bold+"範例: "+ui.White+"%s"+ui.Reset+"\n", param.Example)
+	fmt.Printf(ui.Bold+i18n.T("wpa.param.desc_label")+ui.White+"%s"+ui.Reset+"\n", param.Description())
+	fmt.Printf(ui.Bold+i18n.T("wpa.param.suggest")+ui.Green+"%v"+ui.Reset+"\n", param.SuggestedValues())
+	fmt.Printf(ui.Bold+i18n.T("wpa.param.default")+ui.Cyan+"%s"+ui.Reset+"\n", param.DefaultValue)
+	fmt.Printf(ui.Bold+i18n.T("wpa.param.example")+ui.White+"%s"+ui.Reset+"\n", param.Example)
 
-	fmt.Print("\n" + ui.Yellow + ui.Bold + "是否配置此參數? [y/N]: " + ui.Reset)
+	fmt.Print("\n" + ui.Yellow + ui.Bold + i18n.T("wpa.param.confirm") + ui.Reset)
 	var response string
 	fmt.Scanln(&response)
 
@@ -107,7 +122,7 @@ func PromptParamEdit(param WpaParam) (string, bool) {
 		return "", false
 	}
 
-	fmt.Printf(ui.Yellow+ui.Bold+"請輸入值 (直接按 Enter 使用預設值 '%s'): "+ui.Reset, param.DefaultValue)
+	fmt.Printf(ui.Yellow+ui.Bold+i18n.Tf("wpa.param.input", param.DefaultValue)+ui.Reset)
 	var value string
 	fmt.Scanln(&value)
 
@@ -117,3 +132,4 @@ func PromptParamEdit(param WpaParam) (string, bool) {
 
 	return value, true
 }
+

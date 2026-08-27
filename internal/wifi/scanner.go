@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/ui"
 	"strings"
@@ -134,10 +135,10 @@ func (s *Scanner) parseScanResults(output string) []ScanResult {
 
 // PrintResults displays scan results in a formatted list
 func PrintScanResults(results []ScanResult) {
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 掃描結果 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("scan.result_title") + " ==========" + ui.Reset)
 
 	if len(results) == 0 {
-		fmt.Println("未找到任何網路")
+		fmt.Println(i18n.T("scan.no_network"))
 		return
 	}
 
@@ -161,12 +162,16 @@ func PrintScanResults(results []ScanResult) {
 		}
 
 		// Format: [1] SSID: Mozart-AP8   Protocol: WiFi 5   Band: 5GHz   Security: WPA2-Personal   Signal: -36 dBm (Good)
-		fmt.Printf("[%d] SSID: %-17s\t協議: %-8s\t頻段: %-8s\t安全性: %-18s\t信號: %s dBm (%s)\n",
+		fmt.Printf("[%d] SSID: %-17s\t%s: %-8s\t%s: %-8s\t%s: %-18s\t%s: %s dBm (%s)\n",
 			i+1,
 			ssid,
+			i18n.T("scan.col.protocol"),
 			wifiGen,
+			i18n.T("scan.col.band"),
 			band,
+			i18n.T("scan.col.security"),
 			security,
+			i18n.T("scan.col.signal"),
 			result.Signal,
 			signalQuality,
 		)
@@ -207,7 +212,7 @@ func parseSecurity(flags string) string {
 	} else if strings.Contains(flags, "WEP") {
 		return "WEP"
 	} else if strings.Contains(flags, "ESS") && !strings.Contains(flags, "WPA") {
-		return "開放網路"
+		return i18n.T("scan.open_network")
 	}
 
 	return "Unknown"
@@ -219,15 +224,15 @@ func parseSignalQuality(signalStr string) string {
 	fmt.Sscanf(signalStr, "%d", &signal)
 
 	if signal >= -50 {
-		return "優秀"
+		return i18n.T("scan.signal.excellent")
 	} else if signal >= -60 {
-		return "良好"
+		return i18n.T("scan.signal.good")
 	} else if signal >= -70 {
-		return "中等"
+		return i18n.T("scan.signal.fair")
 	} else if signal >= -80 {
-		return "較差"
+		return i18n.T("scan.signal.poor")
 	}
-	return "很差"
+	return i18n.T("scan.signal.very_poor")
 }
 
 // parseWiFiGeneration determines WiFi generation from frequency and flags

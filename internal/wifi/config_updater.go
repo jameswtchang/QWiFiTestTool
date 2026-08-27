@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"qwifitesttool/internal/i18n"
 )
 
 // updateWpaSupplicantConfig updates the network block in wpa_supplicant.conf
@@ -27,12 +29,12 @@ func updateWpaSupplicantConfig(configPath, ssid, password, flags string) error {
 	newConfig := content + "\n" + networkBlock
 
 	// Write back
-	fmt.Printf("[INFO] 更新配置文件: %s\n", configPath)
+	fmt.Println(i18n.Tf("cfg.updating", configPath))
 	if err := os.WriteFile(configPath, []byte(newConfig), 0600); err != nil {
-		return fmt.Errorf("寫入配置文件失敗: %w", err)
+		return fmt.Errorf(i18n.T("cfg.write_fail"), err)
 	}
 
-	fmt.Println("[SUCCESS] 配置文件已更新")
+	fmt.Println(i18n.T("cfg.updated"))
 	return nil
 }
 
@@ -124,11 +126,11 @@ func buildNetworkBlock(ssid, password, flags string) string {
 func printConfigFile(configPath string) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		fmt.Printf("[ERROR] 無法讀取配置文件: %v\n", err)
+		fmt.Println(i18n.Tf("cfg.read_fail", err))
 		return
 	}
 
-	fmt.Println("\n========== 配置文件內容 ==========")
+	fmt.Println("\n========== " + i18n.T("cfg.content_title") + " ==========")
 	fmt.Println(string(data))
 	fmt.Println("==================================")
 }

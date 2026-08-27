@@ -4,15 +4,17 @@ import (
 	"fmt"
 	"os/exec"
 	"time"
+
+	"qwifitesttool/internal/i18n"
 )
 
 // stopWpaSupplicant stops wpa_supplicant daemon with command logging
 func (c *Connector) stopWpaSupplicant() {
 	iface := c.module.Kernel.GetInterface()
 
-	fmt.Println("\n[INFO] 停止 wpa_supplicant daemon...")
+	fmt.Println("\n" + i18n.T("conn.stop_wpa"))
 	if c.log != nil {
-		c.log.LogEvent("停止 wpa_supplicant daemon")
+		c.log.LogEvent("Stopping wpa_supplicant daemon")
 	}
 
 	// Try graceful stop via wpa_cli
@@ -25,7 +27,7 @@ func (c *Connector) stopWpaSupplicant() {
 		c.log.LogCmd(terminateCmd, output, err)
 	}
 	if err != nil {
-		fmt.Printf("[WARN] wpa_cli terminate 失敗: %v\n", err)
+		fmt.Println(i18n.Tf("conn.wpa_cli_fail", err))
 	}
 
 	time.Sleep(1 * time.Second)
@@ -45,14 +47,14 @@ func (c *Connector) stopWpaSupplicant() {
 		c.wpaLog.Close()
 		c.wpaLog = nil
 	}
-	fmt.Println("[INFO] wpa_supplicant 已停止")
+	fmt.Println(i18n.T("conn.wpa_stopped2"))
 }
 
 // forceCleanup performs force cleanup of network interface
 func (c *Connector) forceCleanup() {
 	iface := c.module.Kernel.GetInterface()
 
-	fmt.Println("[INFO] 強制清理網路介面...")
+	fmt.Println(i18n.T("conn.force_cleanup"))
 
 	// Flush IP
 	flushCmd := fmt.Sprintf("ip addr flush dev %s", iface)
@@ -73,7 +75,7 @@ func (c *Connector) forceCleanup() {
 
 // autoConnectFromConfig attempts to connect using existing config file
 func (c *Connector) autoConnectFromConfig() (bool, error) {
-	fmt.Printf("[INFO] 使用配置文件: %s\n", c.configPath)
+	fmt.Println(i18n.Tf("conn.using_config", c.configPath))
 
 	// Start daemon
 	if err := c.startDaemon(); err != nil {
@@ -81,19 +83,19 @@ func (c *Connector) autoConnectFromConfig() (bool, error) {
 	}
 
 	// Wait for auto-connect
-	fmt.Println("[INFO] 等待自動連接...")
+	fmt.Println(i18n.T("conn.wait_auto"))
 	time.Sleep(8 * time.Second)
 
 	// Check connection status
 	connected, ssid := c.checkConnectionStatus()
 	if !connected {
-		fmt.Println("[WARN] 自動連接失敗")
-		fmt.Println("[INFO] 可能原因:")
-		fmt.Println("  - 配置文件中的密碼錯誤")
-		fmt.Println("  - AP 不在範圍內")
-		fmt.Println("  - AP 拒絕連接")
+		fmt.Println(i18n.T("conn.auto_fail2"))
+		fmt.Println(i18n.T("conn.auto_fail_reasons"))
+		fmt.Println(i18n.T("conn.reason_pwd"))
+		fmt.Println(i18n.T("conn.reason_range"))
+		fmt.Println(i18n.T("conn.reason_reject"))
 
-		fmt.Print("\n是否進入掃描模式? [y/N]: ")
+		fmt.Print(i18n.T("conn.ask_scan"))
 		var response string
 		fmt.Scanln(&response)
 
@@ -104,21 +106,21 @@ func (c *Connector) autoConnectFromConfig() (bool, error) {
 		return false, nil
 	}
 
-	fmt.Printf("✓ 已連接到: %s\n", ssid)
+	fmt.Printf("%s\n", i18n.Tf("conn.connected_to2", ssid))
 
 	// Check IP and get if needed
 	hasIP, ipAddr := c.checkIPAddress()
 	if hasIP {
-		fmt.Printf("✓ IP 地址: %s\n", ipAddr)
+		fmt.Printf("%s\n", i18n.Tf("conn.ip_addr2", ipAddr))
 	} else {
-		fmt.Println("[INFO] 獲取 IP 地址...")
+		fmt.Println(i18n.T("conn.getting_ip"))
 		if err := c.runDHCPClient(); err != nil {
-			fmt.Printf("[WARN] DHCP 失敗: %v\n", err)
+			fmt.Println(i18n.Tf("conn.dhcp_fail", err))
 		} else {
 			time.Sleep(2 * time.Second)
 			hasIP, ipAddr = c.checkIPAddress()
 			if hasIP {
-				fmt.Printf("✓ IP 地址: %s\n", ipAddr)
+				fmt.Printf("%s\n", i18n.Tf("conn.ip_addr2", ipAddr))
 			}
 		}
 	}

@@ -86,3 +86,39 @@
 
 ### 版本號更新
 * Banner 版本號更新為 `V1.01`。
+
+---
+
+## 5. 最新更新 (2026-08-27) — V1.03 (完整 i18n 雙語化與 AP 模式死鎖修復)
+
+### 全系統 i18n 雙語架構實作
+* **輕量級自研 i18n 模組** (`internal/i18n`)：
+  - 專為嵌入式 ARM64 Linux 設計，不引入肥大第三方依賴包。
+  - 採用 Map 表驅動架構，提供 `i18n.T(key)` 與 `i18n.Tf(key, args...)` 格式化輸出。
+  - **三層 Fallback 機制**：當前語言 -> 繁體中文預設 -> 原始 Key，確保絕不因缺詞條崩潰。
+  - **啟動語言選單**：程式啟動時預設使用繁體中文，提示 `Switch language to English? [y/N]:`，輸入 `Y/y` 切換為英文，其餘維持繁中。
+* **100% UI / 流程雙語覆蓋**（新增 210+ 翻譯 Key）：
+  - 主選單與 Banner (`cmd/main.go`, `internal/ui/menu.go`)
+  - Station 模式連線、掃描與錯誤診斷 (`internal/wifi/connector*.go`, `scanner.go`)
+  - AP 熱點模式與系統服務 (`internal/wifi/hotspot.go`, `iw_helper.go`)
+  - 驅動掛載與卸載 (`internal/wifi/driver_loader.go`, `diagnosis.go`)
+  - 參數與設定檔編輯器 (`internal/config/wpa_editor.go`, `ap_config_editor.go`, `manager.go`)
+  - 日誌模組與模組載入器 (`internal/logger/logger.go`, `models/loader.go`)
+
+### AP 模式 Ctrl+C 退出死鎖 Bug 修復
+* **問題現象**：在 AP (Hotspot) 模式下按下 `Ctrl+C` 終止服務時，畫面停留在 `kill <pid> (hostapd)` 後永久阻塞，無法退出程式。
+* **根本原因分析**：
+  1. `hotspot.Start()` 內已啟動背景 goroutine 執行 `h.hostapdCmd.Wait()` 監控 process。
+  2. 使用者發送中斷信號後，主執行緒在 `Stop()` 內又調用了 `h.hostapdCmd.Wait()` 與 `h.dnsmasqCmd.Wait()`。
+  3. 在 Go 語言 `os/exec` 設計中，同一個 `exec.Cmd` 重複或並發調用 `Wait()` 會因 pipe I/O lock 或重複回收引發死鎖/阻塞。
+  4. 此外，信號通道 `sigChan` 在 `Start()` 結束前未釋放，造成後續再次按 Ctrl+C 依然被空通道攔截。
+* **解決方案**：
+  1. `Stop()` 內改為直接發送 `Process.Kill()`，移除重複的阻塞性 `Wait()`，進程回收交由後續的 `killall -9` 保證清理。
+  2. `Start()` 加入 `defer signal.Stop(sigChan)`，確保離開 AP 模式後釋放系統信號監聽。
+
+### 終端排版與 CJK 對齊精細化
+* **標籤寬度擴展**：將 AP Details 與 Interface Details 的 Label 寬度從 10 擴大為 16 (`ui.AlignLabel(label, 16)`)。
+* **長標籤支援**：解決英文版下 `Country Code:` (13 字元) 和 `Gateway IP:` (11 字元) 超出欄寬導致值對齊錯位的問題，中英文環境下均呈現整齊一致的視覺效果。
+
+### 版本號升級
+* Banner 與版本識別更新為 **`V1.03`**。

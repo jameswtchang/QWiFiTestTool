@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"qwifitesttool/internal/i18n"
 )
 
 const (
@@ -48,7 +50,7 @@ func NewSession(prefix string) (*SessionLogger, error) {
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		logDir = FallbackLogDir
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			return nil, fmt.Errorf("無法建立 log 目錄: %w", err)
+			return nil, fmt.Errorf(i18n.T("log.mkdir_fail"), err)
 		}
 	}
 
@@ -57,7 +59,7 @@ func NewSession(prefix string) (*SessionLogger, error) {
 
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("無法建立 log 檔: %w", err)
+		return nil, fmt.Errorf(i18n.T("log.create_fail"), err)
 	}
 
 	logger := &SessionLogger{
@@ -75,7 +77,7 @@ func NewSession(prefix string) (*SessionLogger, error) {
 
 	currentSession = logger
 
-	fmt.Printf("[LOG] 日誌檔案: %s\n", logPath)
+	fmt.Println(i18n.Tf("log.file", logPath))
 	return logger, nil
 }
 

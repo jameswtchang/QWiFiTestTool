@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"qwifitesttool/internal/config"
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/ui"
@@ -43,7 +44,7 @@ func NewHotspot(module *models.WiFiModule, hostapdPath string) *Hotspot {
 
 // Start initiates the AP mode workflow
 func (h *Hotspot) Start() error {
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== AP 模式 (熱點) ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("hotspot.title") + " ==========" + ui.Reset)
 
 	// Setup hostapd config
 	if err := h.setupHostapdConfig(); err != nil {
@@ -83,7 +84,7 @@ func (h *Hotspot) setupHostapdConfig() error {
 		if err := config.SaveConfig(h.hostapdConfig, configContent); err != nil {
 			return err
 		}
-		fmt.Printf("[INFO] 已生成 hostapd 配置: %s\n", h.hostapdConfig)
+		fmt.Println(i18n.Tf("hotspot.hostapd_gen", h.hostapdConfig))
 
 		if confMgr.PromptSaveCustom() {
 			confMgr.SaveAsCustomConfig(configContent)
@@ -130,7 +131,7 @@ func (h *Hotspot) setupDnsmasqConfig() error {
 		if err := config.SaveConfig(h.dnsmasqConfig, configContent); err != nil {
 			return err
 		}
-		fmt.Printf("[INFO] 已生成 dnsmasq 配置: %s\n", h.dnsmasqConfig)
+		fmt.Println(i18n.Tf("hotspot.dnsmasq_gen", h.dnsmasqConfig))
 
 		if confMgr.PromptSaveCustom() {
 			confMgr.SaveAsCustomConfig(configContent)
@@ -144,11 +145,11 @@ func (h *Hotspot) setupDnsmasqConfig() error {
 func (h *Hotspot) printConfigContent(name, path string) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Printf("[WARN] 無法讀取 %s 配置: %v\n", name, err)
+		fmt.Println(i18n.Tf("hotspot.config_read_fail", name, err))
 		return
 	}
 
-	fmt.Printf("\n[INFO] 載入 %s 配置: %s\n", name, path)
+	fmt.Printf("\n%s\n", i18n.Tf("hotspot.config_loaded", name, path))
 	fmt.Println("----------------------------------------")
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
@@ -165,14 +166,14 @@ func (h *Hotspot) printConfigContent(name, path string) {
 func (h *Hotspot) promptConfig() (ssid, password, band string, err error) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("輸入熱點名稱 (SSID): ")
+	fmt.Print(i18n.T("hotspot.prompt_ssid"))
 	ssid, _ = reader.ReadString('\n')
 	ssid = strings.TrimSpace(ssid)
 	if ssid == "" {
 		return "", "", "", fmt.Errorf("SSID cannot be empty")
 	}
 
-	fmt.Print("輸入密碼 (至少 8 位，留空表示開放網路): ")
+	fmt.Print(i18n.T("hotspot.prompt_pwd"))
 	password, _ = reader.ReadString('\n')
 	password = strings.TrimSpace(password)
 
@@ -180,7 +181,7 @@ func (h *Hotspot) promptConfig() (ssid, password, band string, err error) {
 		return "", "", "", fmt.Errorf("password must be at least 8 characters")
 	}
 
-	fmt.Print("選擇頻段 [2.4G/5G] (預設 2.4G): ")
+	fmt.Print(i18n.T("hotspot.prompt_band"))
 	band, _ = reader.ReadString('\n')
 	band = strings.TrimSpace(band)
 	if band == "" {
@@ -208,7 +209,7 @@ func (h *Hotspot) startServices() error {
 
 	// Setup interface IP before starting dnsmasq
 	if err := h.setupInterfaceIP(); err != nil {
-		fmt.Printf("[WARN] 設定介面 IP 失敗: %v\n", err)
+		fmt.Println(i18n.Tf("hotspot.ip_fail", err))
 	}
 
 	// Set regulatory domain before starting hostapd
@@ -242,22 +243,23 @@ func (h *Hotspot) startServices() error {
 
 	// Start dnsmasq
 	if err := h.startDnsmasq(dnsmasqLog); err != nil {
-		fmt.Printf("[WARN] 啟動 dnsmasq 失敗: %v\n", err)
+		fmt.Println(i18n.Tf("hotspot.dnsmasq_fail", err))
 		// Continue anyway, hostapd can work without dnsmasq
 	}
 
 	// Display AP information
 	h.showAPInfo()
 
-	fmt.Println("\n[INFO] 日誌檔案:")
+	fmt.Println("\n" + i18n.T("hotspot.log_files"))
 	fmt.Printf("  hostapd: %s\n", hostapdLog)
 	fmt.Printf("  dnsmasq: %s\n", dnsmasqLog)
 	fmt.Printf("  dmesg:   %s\n", dmesgLog)
-	fmt.Println("\n按 Ctrl+C 停止熱點...")
+	fmt.Println("\n" + i18n.T("hotspot.press_ctrl_c"))
 
 	// Handle Ctrl+C gracefully
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	// Wait for signal or process exit
 	done := make(chan error, 1)
@@ -269,10 +271,10 @@ func (h *Hotspot) startServices() error {
 
 	select {
 	case <-sigChan:
-		fmt.Println("\n[INFO] 正在停止熱點...")
+		fmt.Println("\n" + i18n.T("hotspot.stopping"))
 	case err := <-done:
 		if err != nil {
-			fmt.Printf("[WARN] hostapd 意外終止: %v\n", err)
+			fmt.Println(i18n.Tf("hotspot.hostapd_crash", err))
 		}
 	}
 
@@ -282,7 +284,7 @@ func (h *Hotspot) startServices() error {
 	// Save dmesg after stopping
 	saveDmesg(dmesgLog, "after")
 
-	fmt.Println("[INFO] 熱點已停止")
+	fmt.Println(i18n.T("hotspot.stopped"))
 	return nil
 }
 
@@ -357,12 +359,12 @@ func (h *Hotspot) setRegulatoryDomain() {
 		return
 	}
 
-	fmt.Printf("[INFO] 設定 regulatory domain: %s\n", countryCode)
+	fmt.Println(i18n.Tf("hotspot.set_regdomain", countryCode))
 	cmd := exec.Command("iw", "reg", "set", countryCode)
 	cmdStr := fmt.Sprintf("iw reg set %s", countryCode)
 	fmt.Printf("[CMD] %s\n", cmdStr)
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("[WARN] 設定 regulatory domain 失敗: %v\n", err)
+		fmt.Println(i18n.Tf("hotspot.regdomain_fail", err))
 	}
 
 	// Give the kernel time to apply the new regulatory domain
@@ -392,7 +394,7 @@ func (h *Hotspot) startHostapd(logPath string) error {
 		return fmt.Errorf("failed to start hostapd: %w", err)
 	}
 
-	fmt.Println("[INFO] hostapd 已啟動")
+	fmt.Println(i18n.T("hotspot.hostapd_started"))
 	return nil
 }
 
@@ -420,17 +422,17 @@ func (h *Hotspot) startDnsmasq(logPath string) error {
 		return fmt.Errorf("failed to start dnsmasq: %w", err)
 	}
 
-	fmt.Println("[INFO] dnsmasq 已啟動 (DHCP/DNS)")
+	fmt.Println(i18n.T("hotspot.dnsmasq_started"))
 	return nil
 }
 
 // showAPInfo displays AP configuration details
 func (h *Hotspot) showAPInfo() {
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== AP 詳細資訊 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("hotspot.info_title") + " ==========" + ui.Reset)
 
 	content, err := os.ReadFile(h.hostapdConfig)
 	if err != nil {
-		fmt.Printf(ui.Yellow+"[WARN] "+ui.Reset+"無法讀取配置: %v\n", err)
+		fmt.Printf(ui.Yellow+"[WARN] "+ui.Reset+"%s\n", i18n.Tf("hotspot.config_read_err", err))
 		return
 	}
 
@@ -448,9 +450,9 @@ func (h *Hotspot) showAPInfo() {
 		}
 	}
 
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("介面:", 10), configMap["interface"])
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("驅動:", 10), configMap["driver"])
-	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 10), configMap["ssid"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.iface"), 16), configMap["interface"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.driver"), 16), configMap["driver"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), configMap["ssid"])
 
 	channel := configMap["channel"]
 	band := "2.4GHz"
@@ -494,12 +496,12 @@ func (h *Hotspot) showAPInfo() {
 	}
 
 	if modeStr != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (channel %s)"+ui.Reset+"\n", ui.AlignLabel("頻段/模式:", 10), band, modeStr, channel)
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (channel %s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band_mode"), 16), band, modeStr, channel)
 	} else {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", ui.AlignLabel("頻段:", 10), band, channel)
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band"), 16), band, channel)
 	}
 
-	security := "開放網路"
+	security := i18n.T("hotspot.open_network")
 	if configMap["wpa"] == "2" || configMap["wpa"] == "3" {
 		keyMgmt := configMap["wpa_key_mgmt"]
 		pairwise := configMap["rsn_pairwise"]
@@ -514,10 +516,10 @@ func (h *Hotspot) showAPInfo() {
 			security = fmt.Sprintf("WPA2-PSK (%s)", pairwise)
 		}
 	}
-	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("安全性:", 10), security)
+	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.security"), 16), security)
 
 	if configMap["country_code"] != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("國家代碼:", 10), configMap["country_code"])
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.country"), 16), configMap["country_code"])
 	}
 
 	// Read DHCP info from dnsmasq.conf
@@ -533,8 +535,8 @@ func (h *Hotspot) showAPInfo() {
 			}
 		}
 	}
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("閘道 IP:", 10), gateway)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("DHCP:", 10), dhcpRange)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.gateway"), 16), gateway)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("DHCP:", 16), dhcpRange)
 
 	// Show iw interface details
 	ShowInterfaceDetail(h.module.Kernel.GetInterface())
@@ -551,14 +553,14 @@ func saveDmesg(logPath, phase string) {
 		cmd = exec.Command("dmesg")
 		output, err = cmd.Output()
 		if err != nil {
-			fmt.Printf("[WARN] dmesg 失敗: %v\n", err)
+			fmt.Println(i18n.Tf("hotspot.dmesg_fail", err))
 			return
 		}
 	}
 
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Printf("[WARN] 無法寫入 dmesg log: %v\n", err)
+		fmt.Println(i18n.Tf("hotspot.dmesg_write_fail", err))
 		return
 	}
 	defer f.Close()
@@ -574,7 +576,6 @@ func (h *Hotspot) Stop() error {
 	if h.dnsmasqCmd != nil && h.dnsmasqCmd.Process != nil {
 		fmt.Printf("[CMD] kill %d (dnsmasq)\n", h.dnsmasqCmd.Process.Pid)
 		h.dnsmasqCmd.Process.Kill()
-		h.dnsmasqCmd.Wait()
 	}
 	if h.dnsmasqLog != nil {
 		h.dnsmasqLog.Close()
@@ -584,7 +585,6 @@ func (h *Hotspot) Stop() error {
 	if h.hostapdCmd != nil && h.hostapdCmd.Process != nil {
 		fmt.Printf("[CMD] kill %d (hostapd)\n", h.hostapdCmd.Process.Pid)
 		h.hostapdCmd.Process.Kill()
-		h.hostapdCmd.Wait()
 	}
 	if h.hostapdLog != nil {
 		h.hostapdLog.Close()
@@ -605,7 +605,7 @@ func (h *Hotspot) Stop() error {
 	fmt.Printf("[CMD] ip link set %s down\n", iface)
 	exec.Command("ip", "link", "set", iface, "down").Run()
 
-	fmt.Printf("[INFO] 已停止 hostapd/dnsmasq，介面 %s 已關閉\n", iface)
+	fmt.Println(i18n.Tf("hotspot.all_stopped", iface))
 
 	return nil
 }

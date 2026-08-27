@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/ui"
 )
 
@@ -53,7 +54,7 @@ func (c *Connector) disconnect() error {
 		c.log.LogCmd(cmdStr, output, err)
 	}
 	if err != nil {
-		return fmt.Errorf("斷開連線失敗: %w", err)
+		return fmt.Errorf(i18n.T("conn.disconnect_fail"), err)
 	}
 
 	// Give it a moment to disconnect
@@ -97,7 +98,7 @@ func (c *Connector) checkIPAddress() (bool, string) {
 func (c *Connector) showConnectionInfo() {
 	iface := c.module.Kernel.GetInterface()
 
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 連線資訊 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("conn.info_title") + " ==========" + ui.Reset)
 
 	// Get wpa_supplicant status
 	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "status")
@@ -134,7 +135,7 @@ func (c *Connector) showConnectionInfo() {
 	// Get IP info from ifconfig/ip
 	cmd = exec.Command("ip", "addr", "show", iface)
 	if output, err := cmd.Output(); err == nil {
-		fmt.Println("\n" + ui.Cyan + ui.Bold + "網路介面資訊:" + ui.Reset)
+		fmt.Println("\n" + ui.Cyan + ui.Bold + i18n.T("conn.net_iface_info") + ui.Reset)
 		lines := strings.Split(string(output), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)

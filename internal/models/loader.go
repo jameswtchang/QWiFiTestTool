@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"qwifitesttool/internal/i18n"
 )
 
 //go:embed default_modules.xml
@@ -22,12 +24,12 @@ func LoadModules() (*WiFiToolConfig, error) {
 
 	// Try loading from external file first
 	if data, err := os.ReadFile(externalPath); err == nil {
-		fmt.Printf("[INFO] 使用外部配置檔案: %s\n", externalPath)
+		fmt.Println(i18n.Tf("loader.external", externalPath))
 		return parseXML(data)
 	}
 
 	// Fall back to embedded configuration
-	fmt.Println("[INFO] 未找到外部配置檔案，使用內嵌預設配置")
+	fmt.Println(i18n.T("loader.embedded"))
 	return parseXML(defaultModulesXML)
 }
 

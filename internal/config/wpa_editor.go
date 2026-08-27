@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
 	"qwifitesttool/internal/ui"
@@ -33,27 +34,27 @@ func NewWpaEditor(module *models.WiFiModule, platformInfo *sys.PlatformInfo) *Wp
 // Start begins the interactive editing session
 // Returns (actionTaken, error) - actionTaken is false if user skipped editing
 func (e *WpaEditor) Start() (bool, error) {
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== wpa_supplicant.conf 編輯器 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("wpa_ed.title") + " ==========" + ui.Reset)
 
 	// Step 1: Detect config path
 	e.configPath = e.detectConfigPath()
-	fmt.Printf(ui.Cyan+"[INFO] "+ui.Reset+"配置檔案路徑: %s\n", e.configPath)
+	fmt.Printf(ui.Cyan+"[INFO] "+ui.Reset+i18n.Tf("wpa_ed.config_path", e.configPath)+"\n")
 
 	// Step 2: Load or create config
 	content, err := e.loadOrCreateConfig()
 	if err != nil {
-		return false, fmt.Errorf("無法載入配置: %w", err)
+		return false, fmt.Errorf(i18n.T("wpa_ed.load_fail"), err)
 	}
 
 	// Step 3: Display current config
 	e.displayConfig(content)
 
 	// Step 4: Ask user for action
-	fmt.Println("\n" + ui.Yellow + ui.Bold + "請選擇操作:" + ui.Reset)
-	fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " 修改當前配置")
-	fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " 捨棄舊設定，重新生成 (使用 XML 預設值)")
-	fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 退出不修改")
-	fmt.Print(ui.Yellow + ui.Bold + "選擇: " + ui.Reset)
+	fmt.Println("\n" + ui.Yellow + ui.Bold + i18n.T("wpa_ed.action_title") + ui.Reset)
+	fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " " + i18n.T("wpa_ed.action.1"))
+	fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " " + i18n.T("wpa_ed.action.2"))
+	fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.action.0"))
+	fmt.Print(ui.Yellow + ui.Bold + i18n.T("wpa_ed.action.select") + ui.Reset)
 
 	input, _ := e.reader.ReadString('\n')
 	input = strings.TrimSpace(input)
@@ -65,49 +66,49 @@ func (e *WpaEditor) Start() (bool, error) {
 		var err error
 		newContent, err = e.interactiveEdit(content)
 		if err != nil {
-			return false, fmt.Errorf("編輯失敗: %w", err)
+			return false, fmt.Errorf(i18n.T("wpa_ed.edit_fail"), err)
 		}
 	} else if input == "2" {
 		newContent = e.generateDefaultConfig()
-		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "已載入 XML 預設配置")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + i18n.T("wpa_ed.xml_loaded"))
 	} else {
-		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "未做任何修改")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + i18n.T("wpa_ed.no_change"))
 		return false, nil
 	}
 
 	// Step 6: Show final config and ask to apply
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 編輯後的配置內容 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("wpa_ed.edited_title") + " ==========" + ui.Reset)
 	fmt.Println(ui.Green + newContent + ui.Reset)
 	fmt.Println(ui.Blue + ui.Bold + "======================================" + ui.Reset)
 
-	fmt.Print("\n" + ui.Yellow + ui.Bold + "是否要套用新的設定值覆蓋目前的系統配置? [y/N]: " + ui.Reset)
+	fmt.Print("\n" + ui.Yellow + ui.Bold + i18n.T("wpa_ed.apply_confirm") + ui.Reset)
 	response, _ := e.reader.ReadString('\n')
 	response = strings.TrimSpace(response)
 
 	if response != "y" && response != "Y" {
-		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + "已放棄修改")
+		fmt.Println(ui.Cyan + "[INFO] " + ui.Reset + i18n.T("wpa_ed.apply_cancelled"))
 		return false, nil
 	}
 
 	// Step 7: Save config
 	if err := e.saveConfig(newContent); err != nil {
-		return false, fmt.Errorf("保存失敗: %w", err)
+		return false, fmt.Errorf(i18n.T("wpa_ed.save_fail"), err)
 	}
 
-	fmt.Println("\n[SUCCESS] 配置已保存")
+	fmt.Println("\n" + i18n.T("wpa_ed.save_ok"))
 
 	// Step 8: Read back and display the saved config
-	fmt.Println("\n========== 系統最新配置 ==========")
+	fmt.Println("\n========== " + i18n.T("wpa_ed.saved_title") + " ==========")
 	if savedData, err := os.ReadFile(e.configPath); err == nil {
 		fmt.Println(string(savedData))
 	} else {
-		fmt.Printf("[WARN] 無法讀取已保存的配置: %v\n", err)
+		fmt.Printf(i18n.Tf("wpa_ed.read_saved_fail", err)+"\n")
 	}
 	fmt.Println("==================================")
 
 	// Step 9: Restart network if needed
 	if err := e.restartNetworkIfNeeded(); err != nil {
-		fmt.Printf("[WARN] 網路重啟失敗: %v\n", err)
+		fmt.Printf(i18n.Tf("wpa_ed.net_restart_fail", err)+"\n")
 	}
 
 	return true, nil
@@ -146,12 +147,12 @@ func (e *WpaEditor) loadOrCreateConfig() (string, error) {
 	// Try to load existing file
 	data, err := os.ReadFile(e.configPath)
 	if err == nil {
-		fmt.Println("[INFO] 已載入現有配置")
+		fmt.Println(i18n.T("wpa_ed.loaded_existing"))
 		return string(data), nil
 	}
 
 	// File doesn't exist, create default from XML
-	fmt.Println("[INFO] 配置檔案不存在，生成預設配置")
+	fmt.Println(i18n.T("wpa_ed.not_exist"))
 
 	defaultConfig := e.generateDefaultConfig()
 	return defaultConfig, nil
@@ -243,7 +244,7 @@ func (e *WpaEditor) getParamFromXML(key string) string {
 
 // displayConfig shows the current configuration
 func (e *WpaEditor) displayConfig(content string) {
-	fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置內容 ==========" + ui.Reset)
+	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("wpa_ed.current_title") + " ==========" + ui.Reset)
 	fmt.Println(ui.Green + content + ui.Reset)
 	fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 }
@@ -256,22 +257,22 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 
 	for {
 		// Display current config state
-		fmt.Println("\n" + ui.Blue + ui.Bold + "========== 當前配置參數 ==========" + ui.Reset)
+		fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("wpa_ed.params_title") + " ==========" + ui.Reset)
 		e.displayConfigMap(configMap)
 		fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 
 		// Display parameter menu
-		fmt.Println("\n" + ui.Yellow + ui.Bold + "========== 可編輯參數 ==========" + ui.Reset)
+		fmt.Println("\n" + ui.Yellow + ui.Bold + "========== " + i18n.T("wpa_ed.editable_title") + " ==========" + ui.Reset)
 		for i, param := range params {
 			if currentVal, exists := configMap[param.Key]; exists {
-				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s (當前: "+ui.Green+"%s"+ui.Reset+")\n", i+1, param.Key, currentVal)
+				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+i18n.T("wpa_ed.current_val")+ui.Green+"%s"+ui.Reset+")\n", i+1, param.Key, currentVal)
 			} else {
-				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"未設定"+ui.Reset+")\n", i+1, param.Key)
+				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+i18n.T("wpa_ed.not_set")+ui.Reset+")\n", i+1, param.Key)
 			}
 		}
-		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " 完成編輯")
+		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.done_edit"))
 		fmt.Println(ui.Yellow + ui.Bold + "================================" + ui.Reset)
-		fmt.Print(ui.Yellow + ui.Bold + "選擇參數編號: " + ui.Reset)
+		fmt.Print(ui.Yellow + ui.Bold + i18n.T("wpa_ed.select_param") + ui.Reset)
 
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
@@ -284,7 +285,7 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 		fmt.Sscanf(input, "%d", &idx)
 
 		if idx < 1 || idx > len(params) {
-			fmt.Println("[WARN] 無效選擇")
+			fmt.Println(i18n.T("wpa_ed.invalid_sel"))
 			continue
 		}
 
@@ -292,28 +293,28 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 
 		// Show parameter details
 		fmt.Printf("\n=== %s ===\n", param.Key)
-		fmt.Printf("說明: %s\n", param.Description)
-		fmt.Printf("建議值: %v\n", param.SuggestedValues)
-		fmt.Printf("預設值: %s\n", param.DefaultValue)
-		fmt.Printf("範例: %s\n", param.Example)
+		fmt.Printf(i18n.T("wpa.param.desc_label")+"%s\n", param.Description())
+		fmt.Printf(i18n.T("wpa.param.suggest")+"%v\n", param.SuggestedValues())
+		fmt.Printf(i18n.T("wpa.param.default")+"%s\n", param.DefaultValue)
+		fmt.Printf(i18n.T("wpa.param.example")+"%s\n", param.Example)
 
 		if current, exists := configMap[param.Key]; exists {
-			fmt.Printf("當前值: %s\n", current)
+			fmt.Printf(i18n.Tf("wpa_ed.current_val2", current)+"\n")
 		}
 
-		fmt.Printf("\n請輸入值 (Enter=預設值 '%s', 'd'=刪除此參數): ", param.DefaultValue)
+		fmt.Printf("\n"+i18n.Tf("wpa_ed.input_val", param.DefaultValue))
 		value, _ := reader.ReadString('\n')
 		value = strings.TrimSpace(value)
 
 		if value == "d" || value == "D" {
 			delete(configMap, param.Key)
-			fmt.Printf("[INFO] 已移除參數: %s\n", param.Key)
+			fmt.Printf(i18n.Tf("wpa_ed.removed", param.Key)+"\n")
 		} else {
 			if value == "" {
 				value = param.DefaultValue
 			}
 			configMap[param.Key] = value
-			fmt.Printf("[INFO] 已設定 %s=%s\n", param.Key, value)
+			fmt.Printf(i18n.Tf("wpa_ed.set", param.Key, value)+"\n")
 		}
 	}
 
@@ -324,7 +325,7 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 // displayConfigMap shows current config key-value pairs in order
 func (e *WpaEditor) displayConfigMap(configMap map[string]string) {
 	if len(configMap) == 0 {
-		fmt.Println("  (空)")
+		fmt.Println("  " + i18n.T("wpa_ed.empty"))
 		return
 	}
 
@@ -440,7 +441,7 @@ func (e *WpaEditor) saveConfig(content string) error {
 		// If mkdir fails due to read-only fs, try remounting
 		exec.Command("mount", "-o", "remount,rw", "/").Run()
 		if err2 := os.MkdirAll(dir, 0755); err2 != nil {
-			return fmt.Errorf("無法建立目錄: %w", err2)
+			return fmt.Errorf(i18n.T("wpa_ed.mkdir_fail"), err2)
 		}
 	}
 
@@ -449,7 +450,7 @@ func (e *WpaEditor) saveConfig(content string) error {
 		// Try remounting root as rw for embedded Linux with read-only rootfs
 		exec.Command("mount", "-o", "remount,rw", "/").Run()
 		if err2 := os.WriteFile(e.configPath, []byte(content), 0600); err2 != nil {
-			return fmt.Errorf("無法寫入檔案: %w", err2)
+			return fmt.Errorf(i18n.T("wpa_ed.write_fail"), err2)
 		}
 	}
 
@@ -458,31 +459,31 @@ func (e *WpaEditor) saveConfig(content string) error {
 
 // restartNetworkIfNeeded checks if wpa_supplicant is running and restarts the network
 func (e *WpaEditor) restartNetworkIfNeeded() error {
-	fmt.Println("\n[INFO] 檢查 wpa_supplicant 狀態...")
+	fmt.Println("\n" + i18n.T("wpa_ed.net_check"))
 
 	// Check if wpa_supplicant is running
 	checkCmd := exec.Command("pgrep", "-x", "wpa_supplicant")
 	output, err := checkCmd.Output()
 
 	if err != nil || len(output) == 0 {
-		fmt.Println("[INFO] wpa_supplicant 未運行，無需重啟")
+		fmt.Println(i18n.T("wpa_ed.net_not_running"))
 		return nil
 	}
 
-	fmt.Println("[INFO] wpa_supplicant 正在運行")
-	fmt.Print("是否重啟網路介面以套用新配置? [y/N]: ")
+	fmt.Println(i18n.T("wpa_ed.net_running"))
+	fmt.Print(i18n.T("wpa_ed.net_restart_ask"))
 
 	response, _ := e.reader.ReadString('\n')
 	response = strings.TrimSpace(response)
 
 	if response != "y" && response != "Y" {
-		fmt.Println("[INFO] 跳過網路重啟（下次連線時會套用新配置）")
+		fmt.Println(i18n.T("wpa_ed.net_skip"))
 		return nil
 	}
 
 	// Restart network interface
 	iface := e.module.Kernel.Interface
-	fmt.Printf("[INFO] 重啟網路介面 %s...\n", iface)
+	fmt.Printf(i18n.Tf("wpa_ed.net_restarting", iface)+"\n")
 
 	// Find necessary commands
 	ipPath := sys.FindCommand("ip", "/sbin/ip")
@@ -495,6 +496,6 @@ func (e *WpaEditor) restartNetworkIfNeeded() error {
 	exec.Command(ipPath, "link", "set", iface, "down").Run()
 	exec.Command(ipPath, "link", "set", iface, "up").Run()
 
-	fmt.Println("[SUCCESS] 網路介面已重啟")
+	fmt.Println(i18n.T("wpa_ed.net_restarted"))
 	return nil
 }

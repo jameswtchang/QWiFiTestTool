@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/ui"
 )
 
@@ -35,7 +36,7 @@ func ShowInterfaceDetail(iface string) {
 					line = strings.ReplaceAll(line, "width: unknown", "width: 320 MHz (802.11be / Unknown)")
 				}
 			}
-			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("頻道:", 10), line)
+			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.channel"), 16), line)
 		}
 
 		// Parse TxPower
@@ -44,9 +45,9 @@ func ShowInterfaceDetail(iface string) {
 			powerStr := strings.TrimPrefix(line, "txpower ")
 			if strings.Contains(powerStr, "42949") {
 				// Driver returned an uninitialized/negative value that wrapped around to 2^32
-				fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel("發射功率:", 10), "未知 (Driver 未提供)")
+				fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), i18n.T("iw.txpower_unknown"))
 			} else {
-				fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("發射功率:", 10), powerStr)
+				fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), powerStr)
 			}
 		}
 	}

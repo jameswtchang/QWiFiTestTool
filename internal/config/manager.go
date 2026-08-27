@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/models"
 )
 
@@ -30,7 +31,7 @@ func (cm *ConfigManager) GetConfigPath() (string, bool, error) {
 	// Tier 1: Custom config (user-saved)
 	customPath := cm.getCustomConfigPath()
 	if fileExists(customPath) {
-		fmt.Printf("[INFO] 使用客製化配置: %s\n", customPath)
+		fmt.Println(i18n.Tf("cfg_mgr.custom", customPath))
 		return customPath, true, nil
 	}
 
@@ -38,14 +39,14 @@ func (cm *ConfigManager) GetConfigPath() (string, bool, error) {
 	systemPaths := cm.getSystemConfigPaths()
 	for _, path := range systemPaths {
 		if fileExists(path) {
-			fmt.Printf("[INFO] 使用系統預設配置: %s\n", path)
+			fmt.Println(i18n.Tf("cfg_mgr.system", path))
 			return path, true, nil
 		}
 	}
 
 	// Tier 3: Auto-generate config
 	generatedPath := cm.getGeneratedConfigPath()
-	fmt.Printf("[INFO] 將自動生成配置: %s\n", generatedPath)
+	fmt.Println(i18n.Tf("cfg_mgr.generate", generatedPath))
 	return generatedPath, false, nil
 }
 
@@ -54,14 +55,14 @@ func (cm *ConfigManager) SaveAsCustomConfig(content string) error {
 	customPath := cm.getCustomConfigPath()
 
 	if err := EnsureConfigDirectory(); err != nil {
-		return fmt.Errorf("無法建立配置目錄: %w", err)
+		return fmt.Errorf(i18n.T("cfg_mgr.mkdir_fail"), err)
 	}
 
 	if err := os.WriteFile(customPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("無法保存客製化配置: %w", err)
+		return fmt.Errorf(i18n.T("cfg_mgr.save_fail"), err)
 	}
 
-	fmt.Printf("[SUCCESS] 客製化配置已保存: %s\n", customPath)
+	fmt.Println(i18n.Tf("cfg_mgr.saved", customPath))
 	return nil
 }
 
@@ -110,7 +111,7 @@ func fileExists(path string) bool {
 
 // PromptSaveCustom asks user if they want to save as custom config
 func (cm *ConfigManager) PromptSaveCustom() bool {
-	fmt.Print("\n是否保存為客製化配置以供下次使用? [y/N]: ")
+	fmt.Print(i18n.T("cfg_mgr.prompt_save"))
 	var response string
 	fmt.Scanln(&response)
 	return response == "y" || response == "Y"
