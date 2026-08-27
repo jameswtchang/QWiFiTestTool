@@ -15,7 +15,7 @@ import (
 )
 
 // Version defines the application version string
-const Version = "V1.03"
+const Version = "V1.04"
 
 func main() {
 	// Show banner
