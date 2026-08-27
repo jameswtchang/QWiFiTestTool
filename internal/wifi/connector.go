@@ -2,6 +2,7 @@ package wifi
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -561,24 +562,44 @@ func (c *Connector) cleanupSocketFiles() error {
 	return nil
 }
 
-// runDHCPClient runs DHCP client
+// runDHCPClient runs DHCP client with timeout protection
 func (c *Connector) runDHCPClient() error {
 	iface := c.module.Kernel.GetInterface()
 
+	// 1. Try udhcpc with 8-second timeout
 	udhcpcPath := sys.FindCommand("udhcpc", "/sbin/udhcpc")
-	args := []string{"-i", iface, "-n", "-q", "-t", "5"}
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel1()
 
-	fmt.Printf("[CMD] %s -i %s -n -q -t 5\n", udhcpcPath, iface)
-	cmd := exec.Command(udhcpcPath, args...)
-	if err := cmd.Run(); err == nil {
+	args := []string{"-i", iface, "-n", "-q", "-t", "3", "-T", "2"}
+	cmdStr := fmt.Sprintf("%s -i %s -n -q -t 3 -T 2", udhcpcPath, iface)
+	fmt.Printf("[CMD] %s\n", cmdStr)
+
+	cmd := exec.CommandContext(ctx1, udhcpcPath, args...)
+	output, err := cmd.CombinedOutput()
+	if c.log != nil {
+		c.log.LogCmd(cmdStr, output, err)
+	}
+	if err == nil {
 		fmt.Println(i18n.T("conn.ip_obtained"))
 		return nil
 	}
 
+	// 2. Try dhclient with 8-second timeout
 	dhclientPath := sys.FindCommand("dhclient", "/sbin/dhclient")
-	fmt.Printf("[CMD] %s %s\n", dhclientPath, iface)
-	cmd = exec.Command(dhclientPath, iface)
-	if err := cmd.Run(); err == nil {
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel2()
+
+	dhArgs := []string{"-1", "-v", iface}
+	dhCmdStr := fmt.Sprintf("%s -1 -v %s", dhclientPath, iface)
+	fmt.Printf("[CMD] %s\n", dhCmdStr)
+
+	cmd = exec.CommandContext(ctx2, dhclientPath, dhArgs...)
+	output, err = cmd.CombinedOutput()
+	if c.log != nil {
+		c.log.LogCmd(dhCmdStr, output, err)
+	}
+	if err == nil {
 		fmt.Println(i18n.T("conn.ip_obtained"))
 		return nil
 	}
