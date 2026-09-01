@@ -121,4 +121,36 @@
 * **長標籤支援**：解決英文版下 `Country Code:` (13 字元) 和 `Gateway IP:` (11 字元) 超出欄寬導致值對齊錯位的問題，中英文環境下均呈現整齊一致的視覺效果。
 
 ### 版本號升級
-* Banner 與版本識別更新為 **`V1.03`**。
+* Banner 與版本識別更新為 `V1.03`。
+
+---
+
+## 6. 最新更新 (2026-09-01) — V1.05 (DHCP 超時保護、AP 衝突清理、全域靜態分析修復與排版優化)
+
+### Station 模式 DHCP 客戶端阻塞卡死修復
+* **問題現象**：在 Station 模式連線成功後，進入 `[INFO] 獲取 IP 地址...` 並執行 `udhcpc -i wlan0 -n -q -t 5` 時，程式無限期阻塞無法完成連線流程。
+* **根本原因分析**：
+  1. 嵌入式 Linux (BusyBox `udhcpc`) 依賴 `/usr/share/udhcpc/default.script` 設定網卡 IP，若系統缺少預設腳本或 AP 端 DHCP 回應延遲，命令可能無法及時退出。
+  2. 原程式採用同步阻塞式 `exec.Command(...).Run()`，未設置執行逾時防護，導致 Go 主流程永久等待。
+* **解決方案**：
+  1. **導入 Context Timeout 雙重保護**：
+     - `udhcpc` 加入 `context.WithTimeout(..., 8*time.Second)` 與優化參數 `-t 3 -T 2`（減少重試輪數）。
+     - 若 `udhcpc` 超時或失敗，自動切換至 `dhclient`（附帶 `-1 -v` 單次嘗試模式與 `8 秒` 超時保護）。
+  2. **流程不斷裂**：若雙 DHCP 皆未取得 IP，記錄警告日誌並繼續顯示當前已建立的 WiFi 資訊與排錯提示（如提示手動執行 `udhcpc` 或靜態配置），流程安全返回。
+
+### 模組選單排版精細化
+* **長名稱對齊**：在 `internal/models/loader.go` 的 `ListModules()` 中，移除不可預期的 `\t` 跳格，改為固定 `%-22s` 空格填充。
+* 解決 `Quectel FME170Q-865` 等較長模組名稱在終端機中跳格過度造成晶片型號括號錯位的問題。
+
+### 版本號管理架構重構
+* **頂層常數化**：在 `cmd/main.go` 獨立定義 `const Version = "V1.04"`，Banner 顯示時由 `ShowBanner(Version)` 傳入。
+* **i18n 樣板化**：`zh.go` 與 `en.go` 中的 `banner.version` 改為使用 `%s` 佔位符，未來版本進版只需修改 `main.go` 單一檔案，大幅降低維護成本。
+
+### AP 模式啟動前衝突進程清理與 AP 就緒檢測
+* **問題現象**：在執行過 Station 模式連線後切換至 AP 模式，`hostapd` 報錯 `nl80211: Failed to set channel (freq=6135): -16 (Device or resource busy)`，但程式仍繼續執行並印出殘留的舊 Station 頻道資訊。
+* **根本原因分析**：
+  1. 背景殘留的 `wpa_supplicant` 仍連線在舊 AP (如 5GHz 5785MHz)，霸佔了無線網卡，導致核心拒絕切換至 6GHz AP。
+  2. `startServices()` 輪詢 6 秒若失敗仍未中斷返回，導致誤報 AP 啟動成功。
+* **解決方案**：
+  1. 在 `startServices()` 啟動前強制清理 `wpa_supplicant` 等衝突 daemon 與舊介面狀態。
+  2. 輪詢 6 秒後加入 `apReady` 嚴格檢驗，若未成功轉為 `type AP` 即刻終止並報錯。

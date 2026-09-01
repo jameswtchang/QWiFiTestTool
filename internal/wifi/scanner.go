@@ -44,7 +44,7 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 		return nil, fmt.Errorf("failed to trigger scan: %w", err)
 	}
 
-	fmt.Println("[INFO] Scanning for networks (please wait 5 seconds)...")
+	fmt.Println(i18n.T("scan.scanning"))
 	// Wait for scan to complete using time.Sleep (more portable than exec sleep)
 	time.Sleep(5 * time.Second)
 

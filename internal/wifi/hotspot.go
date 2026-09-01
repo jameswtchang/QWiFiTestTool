@@ -193,6 +193,14 @@ func (h *Hotspot) promptConfig() (ssid, password, band string, err error) {
 
 // startServices starts hostapd and dnsmasq with logging
 func (h *Hotspot) startServices() error {
+	// Clean up conflicting daemons and stale interfaces before starting AP
+	exec.Command("killall", "-9", "wpa_supplicant").Run()
+	exec.Command("killall", "-9", "wpa_supplicant_s1g").Run()
+	exec.Command("killall", "-9", "hostapd").Run()
+	exec.Command("killall", "-9", "hostapd_s1g").Run()
+	exec.Command("killall", "-9", "dnsmasq").Run()
+	time.Sleep(300 * time.Millisecond)
+
 	// Create log directory
 	if err := os.MkdirAll(h.logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
@@ -224,6 +232,7 @@ func (h *Hotspot) startServices() error {
 	// PCIe/CNSS based modules (Qualcomm) need extra time for txpower initialization
 	// after beacon is set; USB/SDIO modules (Realtek, MTK) may report 0.00 dBm permanently.
 	isPCIe := strings.Contains(h.module.Kernel.PreloadKo, "pcie") || strings.Contains(h.module.Kernel.PreloadKo, "cnss")
+	apReady := false
 	for i := 0; i < 6; i++ {
 		time.Sleep(1 * time.Second)
 		out, err := exec.Command("iw", "dev", h.module.Kernel.GetInterface(), "info").Output()
@@ -238,7 +247,13 @@ func (h *Hotspot) startServices() error {
 		if isPCIe && strings.Contains(outStr, "txpower 0.00 dBm") {
 			continue
 		}
+		apReady = true
 		break
+	}
+
+	if !apReady {
+		h.Stop()
+		return fmt.Errorf("%s", i18n.Tf("hotspot.ap_init_fail", hostapdLog))
 	}
 
 	// Start dnsmasq
@@ -432,7 +447,7 @@ func (h *Hotspot) showAPInfo() {
 
 	content, err := os.ReadFile(h.hostapdConfig)
 	if err != nil {
-		fmt.Printf(ui.Yellow+"[WARN] "+ui.Reset+"%s\n", i18n.Tf("hotspot.config_read_err", err))
+		fmt.Println(i18n.Tf("hotspot.config_read_err", err))
 		return
 	}
 

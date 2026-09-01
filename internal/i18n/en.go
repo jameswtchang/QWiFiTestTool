@@ -266,7 +266,8 @@ var enMessages = map[string]string{
 	"drv.loaded":              "[SUCCESS] Driver loaded: %s",
 	"drv.module_not_found":    "Module not found",
 
-	// ===== Scanner (scanner.go) =====
+	// ===== WiFi Scanner (scanner.go) =====
+	"scan.scanning":        "[INFO] Scanning for networks (please wait 5 seconds)...",
 	"scan.result_title":    "Scan Results",
 	"scan.no_network":      "No networks found",
 	"scan.col.protocol":    "Protocol",
@@ -400,7 +401,7 @@ var enMessages = map[string]string{
 	"hotspot.dnsmasq_fail":     "[WARN] Failed to start dnsmasq: %v",
 	"hotspot.dnsmasq_started":  "[INFO] dnsmasq started (DHCP/DNS)",
 	"hotspot.info_title":       "AP Details",
-	"hotspot.config_read_err":  "Cannot read config: %v",
+	"hotspot.config_read_err":  "[WARN] Cannot read config: %v",
 	"hotspot.label.iface":      "Interface:",
 	"hotspot.label.driver":     "Driver:",
 	"hotspot.label.band_mode":  "Band/Mode:",
@@ -412,11 +413,12 @@ var enMessages = map[string]string{
 	"hotspot.log_files":        "[INFO] Log files:",
 	"hotspot.press_ctrl_c":     "Press Ctrl+C to stop hotspot...",
 	"hotspot.stopping":         "[INFO] Stopping hotspot...",
-	"hotspot.hostapd_crash":    "[WARN] hostapd terminated unexpectedly: %v",
+	"hotspot.hostapd_crash":    "⚠️  hostapd terminated unexpectedly: %v",
 	"hotspot.stopped":          "[INFO] Hotspot stopped",
 	"hotspot.dmesg_fail":       "[WARN] dmesg failed: %v",
 	"hotspot.dmesg_write_fail": "[WARN] Cannot write dmesg log: %v",
-	"hotspot.all_stopped":      "[INFO] Stopped hostapd/dnsmasq, interface %s down",
+	"hotspot.all_stopped":      "[INFO] hostapd/dnsmasq stopped, interface %s is down",
+	"hotspot.ap_init_fail":     "❌ hostapd failed to start and switch to AP mode (see log: %s)",
 
 	// ===== IW Helper (iw_helper.go) =====
 	"iw.channel":        "Channel:",

@@ -108,7 +108,11 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		}
 	} else if band == "sub-GHz" {
 		sb.WriteString("hw_mode=a\n")
-		sb.WriteString(fmt.Sprintf("channel=%d\n", module.APConfig.APProfile.Channel))
+		ch := 28
+		if module.APConfig.APProfile != nil && module.APConfig.APProfile.Channel != 0 {
+			ch = module.APConfig.APProfile.Channel
+		}
+		sb.WriteString(fmt.Sprintf("channel=%d\n", ch))
 	} else {
 		sb.WriteString("hw_mode=g\n")
 		sb.WriteString("channel=6\n")
@@ -126,7 +130,7 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 			if module.ID == "quectel_fme170q_865" {
 				sb.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", password))
 			} else {
-				sb.WriteString(fmt.Sprintf("sae_password=\"%s\"\n", password))
+				sb.WriteString(fmt.Sprintf("sae_password=%s\n", password))
 			}
 			sb.WriteString("wpa_key_mgmt=SAE\n")
 			sb.WriteString("ieee80211w=2\n")

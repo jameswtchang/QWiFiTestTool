@@ -266,7 +266,8 @@ var zhMessages = map[string]string{
 	"drv.loaded":              "[SUCCESS] 已載入驅動: %s",
 	"drv.module_not_found":    "模組未找到",
 
-	// ===== Scanner (scanner.go) =====
+	// ===== WiFi Scanner (scanner.go) =====
+	"scan.scanning":        "[INFO] 正在掃描網路 (請等待 5 秒)...",
 	"scan.result_title":    "掃描結果",
 	"scan.no_network":      "未找到任何網路",
 	"scan.col.protocol":    "協議",
@@ -403,7 +404,7 @@ var zhMessages = map[string]string{
 	"hotspot.dnsmasq_fail":     "[WARN] 啟動 dnsmasq 失敗: %v",
 	"hotspot.dnsmasq_started":  "[INFO] dnsmasq 已啟動 (DHCP/DNS)",
 	"hotspot.info_title":       "AP 詳細資訊",
-	"hotspot.config_read_err":  "無法讀取配置: %v",
+	"hotspot.config_read_err":  "[WARN] 無法讀取配置: %v",
 	"hotspot.label.iface":      "介面:",
 	"hotspot.label.driver":     "驅動:",
 	"hotspot.label.band_mode":  "頻段/模式:",
@@ -415,11 +416,12 @@ var zhMessages = map[string]string{
 	"hotspot.log_files":        "[INFO] 日誌檔案:",
 	"hotspot.press_ctrl_c":     "按 Ctrl+C 停止熱點...",
 	"hotspot.stopping":         "[INFO] 正在停止熱點...",
-	"hotspot.hostapd_crash":    "[WARN] hostapd 意外終止: %v",
+	"hotspot.hostapd_crash":    "⚠️  hostapd 意外終止: %v",
 	"hotspot.stopped":          "[INFO] 熱點已停止",
 	"hotspot.dmesg_fail":       "[WARN] dmesg 失敗: %v",
 	"hotspot.dmesg_write_fail": "[WARN] 無法寫入 dmesg log: %v",
 	"hotspot.all_stopped":      "[INFO] 已停止 hostapd/dnsmasq，介面 %s 已關閉",
+	"hotspot.ap_init_fail":     "❌ hostapd 啟動失敗，未成功切換為 AP 模式 (詳情請見日誌: %s)",
 
 	// ===== IW Helper (iw_helper.go) =====
 	"iw.channel":        "頻道:",
