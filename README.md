@@ -150,7 +150,7 @@ su
 | 5 | Quectel FCS868R | RTL8852BP | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
 | 6 | Quectel FCE861W | RTL8821CU | 2.4G/5G | WiFi 5 (ac) | ✅ 已驗證 |
 | 7 | Quectel FCS945RI | MT7663 | 2.4G/5G | WiFi 5 (ac) | ✅ 已驗證 |
-| 8 | Quectel FGH200M | - | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
+| 8 | Quectel FGH200M | MM8108 | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
 | 9 | Quectel FME164Q | QCA2064 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
 
 ## 技術細節
