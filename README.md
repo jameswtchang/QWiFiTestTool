@@ -11,7 +11,7 @@
 ✅ **互動式 TUI 編輯器**: 即時修改 SSID、頻段、頻寬、頻道，支援合法頻道驗證  
 ✅ **國家碼支援**: 內置全球資通訊規範 (Country Code / Channel Lookup)  
 ✅ **健康檢查**: 介面、驅動、RFKill、核心日誌診斷  
-✅ **6GHz 架構準備**: 頻段偵測、HE 參數生成、6G 專屬過濾邏輯  
+✅ **WiFi 7 & 6GHz 架構**: 完整支援 802.11be、320MHz 頻寬、6GHz 頻道與 PSC 中心頻道動態計算  
 ✅ **驅動後置命令 (PostLoadCmd)**: 支援 insmod 後自動執行自訂 shell 命令  
 ✅ **CJK 終端對齊**: 中英文混合標籤在終端機完美視覺對齊  
 
@@ -27,10 +27,11 @@ QWifiTestTool/
 ├── internal/
 │   ├── models/              # 資料模型 (XML 解析、頻道查詢、JSON 嵌入)
 │   ├── sys/                 # 系統抽象層
-│   ├── config/              # 配置生成器與 TUI 編輯器 (ap_config_editor.go)
+│   ├── config/              # 配置生成器與 TUI 編輯器 (ap_config_editor.go / wpa_editor.go)
 │   ├── wifi/                # WiFi 操作邏輯 (Hotspot/Connection)
 │   └── ui/                  # 終端使用者介面
-└── .agent/workflows/        # 自動化工作流 (deploy/sync)
+├── docs/                    # 專案設計與架構文檔
+└── .agent/workflows/        # 自動化工作流 (deploy/push/sync)
 ```
 
 ## 快速開始
@@ -48,8 +49,8 @@ QWifiTestTool/
 
 ```bash
 # Android (ARM64)
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o QWifiTestTool cmd/main.go
-adb push QWifiTestTool /data/local/tmp/QWifiTestTool
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../out/QWifiTestTool cmd/main.go
+adb push ../out/QWifiTestTool /data/local/tmp/
 ```
 
 ### 2. 準備 Android 二進制檔案
@@ -81,14 +82,20 @@ su
    - `[4]` Hostapd/Dnsmasq 配置生成及修改 - **(NEW)** 互動式熱點參數配置。
    - `[5]` AP 模式 (建立熱點) - 根據配置啟動 SoftAP。
 
-### 配置編輯器 [4] (新功能)
+### 配置編輯器 [4] 
 
 支援從 `/etc/hostapd.conf` 自動載入現有配置，並提供以下互動式修改：
 
+- **⚡ 快速規格預設精靈 (V1.06)**: 一鍵動態過濾模組極限能力，自動完成頻段 (2.4G/5G/6G/Sub-GHz)、協定 (be/ax/ac/n) 與頻寬 (320M~20M) 的組合配置，免除繁瑣計算。
 - **國家碼 (TW/CN/US...)**: 自動聯動可選頻道。
-- **頻寬 (20/40/80/160MHz)**: 自動計算 HT40+/HT40- 或 VHT 中心頻道。
-- **頻段聯動**: 根據 WiFi 4/5/6 協議自動顯示可用協議與頻道清單。
-- **預覽與儲存**: 即時生成 `hostapd.conf` 與 `dnsmasq.conf` 並儲存至系統路徑。
+- **動態中心頻道**: 自動計算 HT40+/HT40-、VHT 中心頻道，以及 6GHz 的 PSC/Block 基準。
+- **即時預覽與儲存**: 即時生成 `hostapd.conf` 與 `dnsmasq.conf` 並儲存至系統路徑。
+
+### STA 模式 [2] 編輯 wpa_supplicant.conf
+
+支援進階測試用連線策略：
+- **頻段鎖定 (V1.06)**: 動態查表產生 `freq_list`，支援鎖定 6G、5G(含/排除DFS)、2.4G 頻段。
+- **協定上限限制 (V1.06)**: 動態插入 `disable_eht` / `disable_he` / `disable_vht` 以測試向下相容性。
 
 ### AP 模式 [5] (優化)
 
@@ -155,5 +162,5 @@ su
 
 ---
 
-**版本**: V1.01  
-**維護**: WiFi 驅動團隊 (Updated: 2026-07-08)
+**版本**: V1.06  
+**維護**: WiFi 驅動團隊 (Updated: 2026-09-08)
