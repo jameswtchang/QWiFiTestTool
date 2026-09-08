@@ -17,13 +17,13 @@ Copy-Item assets\default_modules.xml internal\models\default_modules.xml -Force
 1. 編譯 ARM64 版本
 
 ```powershell
-$env:CGO_ENABLED=0; $env:GOOS='linux'; $env:GOARCH='arm64'; go build -o QWifiTestTool cmd/main.go
+$env:CGO_ENABLED=0; $env:GOOS='linux'; $env:GOARCH='arm64'; go build -o ..\out\QWifiTestTool cmd/main.go
 ```
 
 1. 推送到開發板並設定權限
 
 ```powershell
-adb push QWifiTestTool /data/local/tmp/QWifiTestTool
+adb push ..\out\QWifiTestTool /data/local/tmp/
 adb push assets\default_modules.xml /data/local/tmp/
 adb shell chmod +x /data/local/tmp/QWifiTestTool
 ```

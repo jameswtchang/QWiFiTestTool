@@ -3,7 +3,7 @@
 *.dll
 *.so
 *.dylib
-wifi-tool
+QWifiTestTool
 
 # Output
 bin/

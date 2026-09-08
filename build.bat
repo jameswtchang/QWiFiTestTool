@@ -23,14 +23,18 @@ go version
 echo.
 
 REM Clean previous builds
+if not exist ..\out mkdir ..\out
+if exist ..\out\QWifiTestTool.exe del /q ..\out\QWifiTestTool.exe
+if exist ..\out\QWifiTestTool del /q ..\out\QWifiTestTool
 if exist QWifiTestTool.exe del /q QWifiTestTool.exe
 if exist QWifiTestTool del /q QWifiTestTool
 
 echo.
 echo [INFO] Syncing XML configuration files...
 echo Source: assets\default_modules.xml
-echo Target: internal\models\default_modules.xml
+echo Target: internal\models\default_modules.xml and ..\out\default_modules.xml
 copy /Y assets\default_modules.xml internal\models\default_modules.xml >nul
+copy /Y assets\default_modules.xml ..\out\default_modules.xml >nul
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Failed to sync XML files
     exit /b 1
@@ -48,14 +52,14 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo [INFO] Building for Windows (testing)...
 set CGO_ENABLED=0
-go build -o QWifiTestTool.exe cmd/main.go
+go build -o ..\out\QWifiTestTool.exe cmd/main.go
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Build failed
     exit /b 1
 )
 
 echo.
-echo [SUCCESS] Build completed: QWifiTestTool.exe
+echo [SUCCESS] Build completed: ..\out\QWifiTestTool.exe
 echo.
 
 echo ======================================
@@ -66,13 +70,13 @@ echo Linux x86_64:
 echo   set CGO_ENABLED=0
 echo   set GOOS=linux
 echo   set GOARCH=amd64
-echo   go build -o QWifiTestTool cmd/main.go
+echo   go build -o ..\out\QWifiTestTool cmd/main.go
 echo.
 echo Android ARM64:
 echo   set CGO_ENABLED=0
 echo   set GOOS=linux
 echo   set GOARCH=arm64
-echo   go build -o QWifiTestTool cmd/main.go
+echo   go build -o ..\out\QWifiTestTool cmd/main.go
 echo.
 
 pause

@@ -11,7 +11,7 @@ description: 推送已編譯的 QWifiTestTool 到開發板
 1. 推送 QWifiTestTool 到開發板
 
 ```powershell
-adb push QWifiTestTool /data/local/tmp/QWifiTestTool
+adb push ..\out\QWifiTestTool /data/local/tmp/
 ```
 
 1. 推送 XML 配置到開發板
