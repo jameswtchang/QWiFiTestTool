@@ -33,6 +33,7 @@ var zhMessages = map[string]string{
 	"common.invalid":     "❌ 無效選項",
 	"common.invalid_sel": "❌ 無效選擇",
 	"common.select_num":  "選擇（輸入編號）: ",
+	"common.back":        "返回",
 
 	// ===== Main Info =====
 	"info.loading_modules": "[INFO] 載入模組配置...",
@@ -145,8 +146,20 @@ var zhMessages = map[string]string{
 	"ap_ed.action.1":          "修改當前配置",
 	"ap_ed.action.2":          "捨棄舊設定，重新生成 (使用 XML 預設值)",
 	"ap_ed.action.3":          "從預設情境範本載入 (快速套用 11n/ac/ax 等情境)",
+	"ap_ed.action.4":          "⚡ 快速規格預設精靈 (頻段/協定/頻寬一鍵配置)",
 	"ap_ed.action.0":          "退出不修改",
 	"ap_ed.action.select":     "選擇操作: ",
+
+	// Quick Preset Wizard
+	"qp.title":           "⚡ 快速規格預設精靈 (頻段/協定/頻寬一鍵配置)",
+	"qp.no_bands":        "此模組無可用頻段",
+	"qp.select_band":     "請選擇頻段:",
+	"qp.max_prefix":      "最高",
+	"qp.no_presets":      "此頻段無可用預設",
+	"qp.select_preset":   "請選擇 %s 規格預設:",
+	"qp.rec_channel":     "推薦頻道",
+	"qp.center_channel":  "Center",
+	"qp.applied_success": "已成功套用 %s %s-%dM 規格 (Channel: %d)",
 	"ap_ed.defaults_restored": "[INFO] 已恢復此模組的預設值",
 	"ap_ed.tpl_load_fail":     "載入範本失敗: %v",
 	"ap_ed.current_hostapd":   "當前配置 (Hostapd)",
@@ -374,9 +387,22 @@ var zhMessages = map[string]string{
 	"conn.ip_addr2":            "✓ IP 地址: %s",
 
 	// ===== Connector Helpers (connector_helpers.go) =====
-	"conn.disconnect_fail":  "斷開連線失敗: %w",
-	"conn.info_title":       "連線資訊",
-	"conn.net_iface_info":   "網路介面資訊:",
+	"conn.disconnect_fail":      "斷開連線失敗: %w",
+	"conn.info_title":           "連線資訊",
+	"conn.net_iface_info":       "網路介面資訊:",
+	"conn.label.iface":          "介面:",
+	"conn.label.status":         "連線狀態:",
+	"conn.label.band_channel":   "頻段/頻道:",
+	"conn.label.signal":         "訊號強度:",
+	"conn.label.bitrate":        "連線速率:",
+	"conn.label.security":       "安全性:",
+	"conn.label.ip":             "IP 位址:",
+	"conn.label.gateway":        "閘道 IP:",
+	"conn.status_completed":    "已連線 (COMPLETED)",
+	"conn.status_disconnected": "已斷開 (DISCONNECTED)",
+	"conn.status_scanning":     "掃描中 (SCANNING)",
+	"conn.status_associating":  "關聯中 (ASSOCIATING)",
+	"conn.status_handshake":    "4次握手中 (4WAY_HANDSHAKE)",
 
 	// ===== Connector Direct (connector_direct.go) =====
 	// "conn.info_title" reused
@@ -424,9 +450,11 @@ var zhMessages = map[string]string{
 	"hotspot.ap_init_fail":     "❌ hostapd 啟動失敗，未成功切換為 AP 模式 (詳情請見日誌: %s)",
 
 	// ===== IW Helper (iw_helper.go) =====
-	"iw.channel":        "頻道:",
-	"iw.txpower":        "發射功率:",
-	"iw.txpower_unknown": "未知 (Driver 未提供)",
+	"iw.channel":            "頻道:",
+	"iw.txpower":            "發射功率:",
+	"iw.txpower_unknown":    "未知 (Driver 未提供)",
+	"iw.txpower_auto":       "Auto (動態控制)",
+	"iw.txpower_auto_limit": "Auto (上限 63 dBm)",
 
 	// ===== Config Manager (manager.go) =====
 	"cfg_mgr.custom":          "[INFO] 使用客製化配置: %s",

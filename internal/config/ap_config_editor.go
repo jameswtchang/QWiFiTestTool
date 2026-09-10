@@ -144,9 +144,10 @@ func (e *APConfigEditor) Start() error {
 	for {
 		e.showCurrentConfig()
 
-		fmt.Println("\n" + ui.Cyan + ui.Bold + "[1]" + ui.Reset + " " + i18n.T("ap_ed.action.1"))
+		fmt.Println(ui.Cyan + ui.Bold + "[1]" + ui.Reset + " " + i18n.T("ap_ed.action.1"))
 		fmt.Println(ui.Cyan + ui.Bold + "[2]" + ui.Reset + " " + i18n.T("ap_ed.action.2"))
 		fmt.Println(ui.Cyan + ui.Bold + "[3]" + ui.Reset + " " + i18n.T("ap_ed.action.3"))
+		fmt.Println(ui.Cyan + ui.Bold + "[4]" + ui.Reset + " " + i18n.T("ap_ed.action.4"))
 		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("ap_ed.action.0"))
 		fmt.Print(ui.Yellow + ui.Bold + i18n.T("ap_ed.action.select") + ui.Reset)
 
@@ -175,6 +176,15 @@ func (e *APConfigEditor) Start() error {
 			if err != nil {
 				fmt.Printf("\n"+i18n.Tf("ap_ed.tpl_load_fail", err)+"\n")
 			} else if loaded {
+				saved, err := e.generateAndPreview()
+				if err != nil {
+					fmt.Printf("\n"+i18n.Tf("err.prefix", err)+"\n")
+				} else if saved {
+					return nil
+				}
+			}
+		case "4":
+			if e.runQuickPresetWizard() {
 				saved, err := e.generateAndPreview()
 				if err != nil {
 					fmt.Printf("\n"+i18n.Tf("err.prefix", err)+"\n")
@@ -281,6 +291,20 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 		e.params.Security = "Open"
 		e.params.Password = ""
 	}
+
+	// 6GHz: restore center channel instead of primary channel
+	// hostapd stores channel= as the 20MHz primary, but our TUI uses center channel IDs
+	if e.params.Band == "6G" && e.params.Bandwidth > 20 {
+		if v, ok := configMap["eht_oper_centr_freq_seg0_idx"]; ok {
+			if ch, err := strconv.Atoi(v); err == nil {
+				e.params.Channel = ch
+			}
+		} else if v, ok := configMap["he_oper_centr_freq_seg0_idx"]; ok {
+			if ch, err := strconv.Atoi(v); err == nil {
+				e.params.Channel = ch
+			}
+		}
+	}
 }
 
 // showCurrentConfig displays the current parameter state
@@ -291,7 +315,12 @@ func (e *APConfigEditor) showCurrentConfig() {
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.band"), 14), e.params.Band)
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.mode"), 14), e.modeDisplayName(e.params.Mode))
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%dMHz"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.bandwidth"), 14), e.params.Bandwidth)
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%d"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), e.params.Channel)
+	if (e.params.Band == "6G" || e.params.Band == "6g") && e.params.Bandwidth > 20 {
+		primaryCh := CalcPrimaryChannel6G(e.params.Channel, e.params.Bandwidth)
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"Center: %d, Primary: %d (PSC)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), e.params.Channel, primaryCh)
+	} else {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%d"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), e.params.Channel)
+	}
 	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 14), e.params.SSID)
 	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.security"), 14), e.params.Security)
 	if e.params.Security != "Open" {
@@ -781,7 +810,11 @@ func (e *APConfigEditor) generateHostapd() string {
 	}
 
 	// Channel
-	sb.WriteString(fmt.Sprintf("channel=%d\n", e.params.Channel))
+	primaryChannel := e.params.Channel
+	if (e.params.Band == "6G" || e.params.Band == "6g") && e.params.Bandwidth > 20 {
+		primaryChannel = CalcPrimaryChannel6G(e.params.Channel, e.params.Bandwidth)
+	}
+	sb.WriteString(fmt.Sprintf("channel=%d\n", primaryChannel))
 
 	// Mode → ieee80211 flags
 	switch e.params.Mode {
@@ -790,8 +823,10 @@ func (e *APConfigEditor) generateHostapd() string {
 	case "be":
 		sb.WriteString("ieee80211be=1\n")
 		sb.WriteString("ieee80211ax=1\n")
-		if e.params.Band != "6G" && e.params.Band != "6g" {
+		if e.params.Band == "5G" {
 			sb.WriteString("ieee80211ac=1\n")
+			sb.WriteString("ieee80211n=1\n")
+		} else if e.params.Band == "2.4G" {
 			sb.WriteString("ieee80211n=1\n")
 		} else if e.module.APConfig.Capabilities != nil && e.module.APConfig.Capabilities.ExplicitlyHasMode("n") {
 			// Some 6GHz 11be chips still require ieee80211n=1 (legacy HT signaling)
@@ -799,8 +834,10 @@ func (e *APConfigEditor) generateHostapd() string {
 		}
 	case "ax":
 		sb.WriteString("ieee80211ax=1\n")
-		if e.params.Band != "6G" && e.params.Band != "6g" {
+		if e.params.Band == "5G" {
 			sb.WriteString("ieee80211ac=1\n")
+			sb.WriteString("ieee80211n=1\n")
+		} else if e.params.Band == "2.4G" {
 			sb.WriteString("ieee80211n=1\n")
 		} else if e.module.APConfig.Capabilities != nil && e.module.APConfig.Capabilities.HasMode("n") {
 			sb.WriteString("ieee80211n=1\n")
@@ -814,20 +851,24 @@ func (e *APConfigEditor) generateHostapd() string {
 
 	// Bandwidth → ht/vht/he/eht capabilities
 	if e.params.Band == "6G" || e.params.Band == "6g" {
-		if e.params.Bandwidth >= 80 {
+		if e.params.Bandwidth >= 40 {
 			if e.params.Mode == "be" {
 				if e.params.Bandwidth == 320 {
 					sb.WriteString("eht_oper_chwidth=3\n")
 				} else if e.params.Bandwidth == 160 {
 					sb.WriteString("eht_oper_chwidth=2\n")
-				} else {
+				} else if e.params.Bandwidth == 80 {
 					sb.WriteString("eht_oper_chwidth=1\n")
+				} else {
+					sb.WriteString("eht_oper_chwidth=0\n")
 				}
 			}
 			if e.params.Bandwidth == 160 || e.params.Bandwidth == 320 {
 				sb.WriteString("he_oper_chwidth=2\n")
-			} else {
+			} else if e.params.Bandwidth == 80 {
 				sb.WriteString("he_oper_chwidth=1\n")
+			} else {
+				sb.WriteString("he_oper_chwidth=0\n")
 			}
 			centerCh := e.calcHE6GCenterChannel()
 			if centerCh > 0 {
@@ -844,6 +885,8 @@ func (e *APConfigEditor) generateHostapd() string {
 			sb.WriteString("op_class=134\n") // 160 MHz
 		} else if e.params.Bandwidth >= 80 {
 			sb.WriteString("op_class=133\n") // 80 MHz
+		} else if e.params.Bandwidth == 40 {
+			sb.WriteString("op_class=132\n") // 40 MHz
 		} else {
 			sb.WriteString("op_class=131\n") // 20 MHz
 		}
@@ -1073,8 +1116,11 @@ func (e *APConfigEditor) calcVHTCenterChannel() int {
 // calcHE6GCenterChannel calculates HE/EHT center frequency channel in 6GHz
 func (e *APConfigEditor) calcHE6GCenterChannel() int {
 	ch := e.params.Channel
+	if e.params.Bandwidth > 20 && (ch-1)%4 != 0 {
+		return ch
+	}
 	if e.params.Bandwidth == 320 {
-		centers := []int{31, 95, 159}
+		centers := []int{31, 63, 95, 127, 159, 191}
 		for _, c := range centers {
 			if ch >= c-30 && ch <= c+30 {
 				return c
@@ -1087,7 +1133,7 @@ func (e *APConfigEditor) calcHE6GCenterChannel() int {
 				return c
 			}
 		}
-	} else {
+	} else if e.params.Bandwidth == 80 {
 		// 80MHz center channels in 6GHz: 7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231
 		centers := []int{7, 23, 39, 55, 71, 87, 103, 119, 135, 151, 167, 183, 199, 215, 231}
 		for _, c := range centers {
@@ -1095,8 +1141,41 @@ func (e *APConfigEditor) calcHE6GCenterChannel() int {
 				return c
 			}
 		}
+	} else if e.params.Bandwidth == 40 {
+		// 40MHz center channels
+		centers := []int{3, 11, 19, 27, 35, 43, 51, 59, 67, 75, 83, 91, 99, 107, 115, 123, 131, 139, 147, 155, 163, 171, 179, 187, 195, 203, 211, 219, 227}
+		for _, c := range centers {
+			if ch >= c-2 && ch <= c+2 {
+				return c
+			}
+		}
 	}
 	return 0
+}
+
+// CalcPrimaryChannel6G calculates the recommended 20MHz primary PSC channel for a 6GHz center channel
+func CalcPrimaryChannel6G(centerCh int, bw int) int {
+	if bw <= 20 || (centerCh-1)%4 == 0 {
+		return centerCh
+	}
+	switch bw {
+	case 40:
+		if (centerCh+2-1)%16 == 4 {
+			return centerCh + 2
+		}
+		return centerCh - 2
+	case 80:
+		// For any 80MHz center C, C-2 is always the PSC channel (5, 21, 37, 53, 69, 85...)
+		return centerCh - 2
+	case 160:
+		// 160MHz center C: lower 80M has PSC at C-10 (e.g. 15 -> 5, 47 -> 37, 79 -> 69)
+		return centerCh - 10
+	case 320:
+		// 320MHz center C: C+6 is always a PSC (e.g. 31 -> 37, 95 -> 101, 159 -> 165)
+		return centerCh + 6
+	default:
+		return centerCh - 2
+	}
 }
 
 func (e *APConfigEditor) readLine() string {
@@ -1121,7 +1200,7 @@ func (e *APConfigEditor) calcHT40Mode() string {
 	ht40PlusChannels := map[int]bool{
 		36: true, 44: true, 52: true, 60: true,
 		100: true, 108: true, 116: true, 124: true,
-		132: true, 149: true, 157: true,
+		132: true, 140: true, 149: true, 157: true,
 	}
 	if ht40PlusChannels[ch] {
 		return "HT40+"

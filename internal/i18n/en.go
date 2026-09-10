@@ -33,6 +33,7 @@ var enMessages = map[string]string{
 	"common.invalid":     "❌ Invalid option",
 	"common.invalid_sel": "❌ Invalid selection",
 	"common.select_num":  "Select: ",
+	"common.back":        "Back",
 
 	// ===== Main Info =====
 	"info.loading_modules": "[INFO] Loading module config...",
@@ -145,8 +146,20 @@ var enMessages = map[string]string{
 	"ap_ed.action.1":          "Modify current config",
 	"ap_ed.action.2":          "Discard and regenerate (use XML defaults)",
 	"ap_ed.action.3":          "Load from profile template (quick apply 11n/ac/ax scenarios)",
+	"ap_ed.action.4":          "⚡ Quick spec presets wizard (band/protocol/bandwidth one-click)",
 	"ap_ed.action.0":          "Exit without changes",
 	"ap_ed.action.select":     "Select operation: ",
+
+	// Quick Preset Wizard
+	"qp.title":           "⚡ Quick Spec Presets Wizard",
+	"qp.no_bands":        "No available bands for this module",
+	"qp.select_band":     "Please select band:",
+	"qp.max_prefix":      "Max",
+	"qp.no_presets":      "No available presets for this band",
+	"qp.select_preset":   "Please select %s spec preset:",
+	"qp.rec_channel":     "Recommended Channel",
+	"qp.center_channel":  "Center",
+	"qp.applied_success": "Successfully applied %s %s-%dM spec (Channel: %d)",
 	"ap_ed.defaults_restored": "[INFO] Module defaults restored",
 	"ap_ed.tpl_load_fail":     "Template load failed: %v",
 	"ap_ed.current_hostapd":   "Current Config (Hostapd)",
@@ -374,9 +387,22 @@ var enMessages = map[string]string{
 	"conn.ip_addr2":            "✓ IP address: %s",
 
 	// ===== Connector Helpers (connector_helpers.go) =====
-	"conn.disconnect_fail":  "Disconnect failed: %w",
-	"conn.info_title":       "Connection Info",
-	"conn.net_iface_info":   "Network interface info:",
+	"conn.disconnect_fail":      "Disconnect failed: %w",
+	"conn.info_title":           "Connection Info",
+	"conn.net_iface_info":       "Network interface info:",
+	"conn.label.iface":          "Interface:",
+	"conn.label.status":         "Status:",
+	"conn.label.band_channel":   "Band/Channel:",
+	"conn.label.signal":         "Signal:",
+	"conn.label.bitrate":        "Bitrate:",
+	"conn.label.security":       "Security:",
+	"conn.label.ip":             "IP Address:",
+	"conn.label.gateway":        "Gateway IP:",
+	"conn.status_completed":    "Connected (COMPLETED)",
+	"conn.status_disconnected": "Disconnected (DISCONNECTED)",
+	"conn.status_scanning":     "Scanning (SCANNING)",
+	"conn.status_associating":  "Associating (ASSOCIATING)",
+	"conn.status_handshake":    "Handshaking (4WAY_HANDSHAKE)",
 
 	// ===== Config Updater (config_updater.go) =====
 	"cfg.updating":          "[INFO] Updating config: %s",
@@ -421,9 +447,11 @@ var enMessages = map[string]string{
 	"hotspot.ap_init_fail":     "❌ hostapd failed to start and switch to AP mode (see log: %s)",
 
 	// ===== IW Helper (iw_helper.go) =====
-	"iw.channel":        "Channel:",
-	"iw.txpower":        "TX Power:",
-	"iw.txpower_unknown": "Unknown (Driver not providing)",
+	"iw.channel":            "Channel:",
+	"iw.txpower":            "TX Power:",
+	"iw.txpower_unknown":    "Unknown (Driver not providing)",
+	"iw.txpower_auto":       "Auto (TPC Dynamic)",
+	"iw.txpower_auto_limit": "Auto (Max 63 dBm)",
 
 	// ===== Config Manager (manager.go) =====
 	"cfg_mgr.custom":          "[INFO] Using custom config: %s",

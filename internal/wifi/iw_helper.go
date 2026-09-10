@@ -40,15 +40,29 @@ func ShowInterfaceDetail(iface string) {
 		}
 
 		// Parse TxPower
-		// Example: txpower 18.00 dBm or buggy txpower 42949572.96 dBm
+		// Example: txpower 18.00 dBm, 0.00 dBm (Auto TPC), 63.00 dBm (Regulatory max limit), or buggy 42949572.96 dBm
 		if strings.HasPrefix(line, "txpower ") {
-			powerStr := strings.TrimPrefix(line, "txpower ")
-			if strings.Contains(powerStr, "42949") {
-				// Driver returned an uninitialized/negative value that wrapped around to 2^32
-				fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), i18n.T("iw.txpower_unknown"))
+			txPower := FormatTxPower(line)
+			if strings.Contains(line, "42949") {
+				fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), txPower)
 			} else {
-				fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), powerStr)
+				fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), txPower)
 			}
 		}
 	}
+}
+
+// FormatTxPower maps raw iw txpower string to a human-readable display string
+func FormatTxPower(powerStr string) string {
+	powerStr = strings.TrimSpace(strings.TrimPrefix(powerStr, "txpower "))
+	if strings.Contains(powerStr, "42949") {
+		return i18n.T("iw.txpower_unknown")
+	}
+	if strings.HasPrefix(powerStr, "0.00") || strings.HasPrefix(powerStr, "0 ") {
+		return i18n.T("iw.txpower_auto")
+	}
+	if strings.HasPrefix(powerStr, "63.00") || strings.HasPrefix(powerStr, "63 ") {
+		return i18n.T("iw.txpower_auto_limit")
+	}
+	return powerStr
 }

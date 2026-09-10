@@ -484,6 +484,8 @@ func (h *Hotspot) showAPInfo() {
 			bw = "160MHz"
 		} else if configMap["op_class"] == "133" {
 			bw = "80MHz"
+		} else if configMap["op_class"] == "132" {
+			bw = "40MHz"
 		}
 		modeStr = fmt.Sprintf("802.11be WiFi 7 (%s)", bw)
 	} else if configMap["ieee80211ax"] == "1" {
@@ -510,10 +512,24 @@ func (h *Hotspot) showAPInfo() {
 		}
 	}
 
+	centerCh := ""
+	if c := configMap["eht_oper_centr_freq_seg0_idx"]; c != "" {
+		centerCh = c
+	} else if c := configMap["he_oper_centr_freq_seg0_idx"]; c != "" {
+		centerCh = c
+	} else if c := configMap["vht_oper_centr_freq_seg0_idx"]; c != "" {
+		centerCh = c
+	}
+
+	chDisplay := fmt.Sprintf("channel %s", channel)
+	if centerCh != "" && centerCh != channel {
+		chDisplay = fmt.Sprintf("Center: %s, Primary: %s", centerCh, channel)
+	}
+
 	if modeStr != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (channel %s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band_mode"), 16), band, modeStr, channel)
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band_mode"), 16), band, modeStr, chDisplay)
 	} else {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (channel %s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band"), 16), band, channel)
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band"), 16), band, chDisplay)
 	}
 
 	security := i18n.T("hotspot.open_network")

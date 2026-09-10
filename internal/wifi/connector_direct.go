@@ -79,30 +79,130 @@ func (c *Connector) showConnectionInfoDirect() {
 
 	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("conn.info_title") + " ==========" + ui.Reset)
 
-	// Get IP info
-	cmd := exec.Command("ip", "addr", "show", iface)
-	if output, err := cmd.Output(); err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.iface"), 16), iface)
+
+	// Wireless info via iw dev link or iwconfig
+	var ssid, bssid, freqStr, signalStr, txBitrate, rxBitrate string
+	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
+		for _, line := range strings.Split(string(linkOut), "\n") {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "inet ") || strings.HasPrefix(line, "inet6 ") {
-				fmt.Printf("  %s\n", line)
+			if strings.HasPrefix(line, "SSID: ") {
+				ssid = strings.TrimPrefix(line, "SSID: ")
+			} else if strings.HasPrefix(line, "Connected to ") {
+				parts := strings.Fields(line)
+				if len(parts) >= 3 {
+					bssid = parts[2]
+				}
+			} else if strings.HasPrefix(line, "freq: ") {
+				freqStr = strings.TrimPrefix(line, "freq: ")
+			} else if strings.HasPrefix(line, "signal: ") {
+				signalStr = strings.TrimPrefix(line, "signal: ")
+			} else if strings.HasPrefix(line, "tx bitrate: ") {
+				txBitrate = strings.TrimPrefix(line, "tx bitrate: ")
+			} else if strings.HasPrefix(line, "rx bitrate: ") {
+				rxBitrate = strings.TrimPrefix(line, "rx bitrate: ")
 			}
 		}
 	}
 
-	// Get wireless info
-	cmd = exec.Command("iwconfig", iface)
-	if output, err := cmd.Output(); err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "ESSID:") ||
-				strings.Contains(line, "Mode:") ||
-				strings.Contains(line, "Frequency:") ||
-				strings.Contains(line, "Access Point:") {
-				fmt.Printf("  %s\n", strings.TrimSpace(line))
+	// Fallback to iwconfig if needed
+	if ssid == "" {
+		if iwOut, err := exec.Command("iwconfig", iface).Output(); err == nil {
+			for _, line := range strings.Split(string(iwOut), "\n") {
+				if strings.Contains(line, "ESSID:") {
+					parts := strings.Split(line, "ESSID:")
+					if len(parts) >= 2 {
+						ssid = strings.Trim(strings.TrimSpace(parts[1]), "\"")
+					}
+				}
+				if strings.Contains(line, "Access Point:") {
+					parts := strings.Split(line, "Access Point:")
+					if len(parts) >= 2 {
+						bssid = strings.Fields(parts[1])[0]
+					}
+				}
 			}
 		}
+	}
+
+	if ssid != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), ssid)
+	}
+	if bssid != "" && bssid != "Not-Associated" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("BSSID:", 16), bssid)
+	}
+
+	// Channel info via iw dev info
+	var iwChannel, txPower string
+	if iwOut, err := exec.Command("iw", "dev", iface, "info").Output(); err == nil {
+		for _, line := range strings.Split(string(iwOut), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "channel ") {
+				iwChannel = line
+			} else if strings.HasPrefix(line, "txpower ") {
+				txPower = FormatTxPower(line)
+			}
+		}
+	}
+
+	chDisplay := formatChannelInfo(iwChannel, freqStr)
+	if chDisplay != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
+	}
+
+	if signalStr != "" {
+		var signalDbm int
+		fmt.Sscanf(signalStr, "%d", &signalDbm)
+		quality := parseSignalQuality(fmt.Sprintf("%d", signalDbm))
+		sigColor := ui.Green
+		if signalDbm < -75 {
+			sigColor = ui.Red
+		} else if signalDbm < -65 {
+			sigColor = ui.Yellow
+		}
+		fmt.Printf(ui.Bold+"  %s "+sigColor+"%d dBm (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.signal"), 16), signalDbm, quality)
+	}
+
+	bitrateDisplay := formatBitrateDisplay(txBitrate, rxBitrate)
+	if bitrateDisplay != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
+	}
+
+	// IP info
+	var ipWithCidr, gatewayIP string
+	if ipOut, err := exec.Command("ip", "-4", "addr", "show", iface).Output(); err == nil {
+		for _, line := range strings.Split(string(ipOut), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "inet ") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					ipWithCidr = fields[1]
+					break
+				}
+			}
+		}
+	}
+	if routeOut, err := exec.Command("ip", "route", "show", "dev", iface).Output(); err == nil {
+		for _, line := range strings.Split(string(routeOut), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "default via ") {
+				fields := strings.Fields(line)
+				if len(fields) >= 3 {
+					gatewayIP = fields[2]
+					break
+				}
+			}
+		}
+	}
+
+	if ipWithCidr != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.ip"), 16), ipWithCidr)
+	}
+	if gatewayIP != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.gateway"), 16), gatewayIP)
+	}
+	if txPower != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), txPower)
 	}
 
 	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)

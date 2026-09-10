@@ -126,6 +126,16 @@ func buildChannelKeys(band string, bandwidth int) []string {
 		return []string{"5G 80M 信道1"}
 	case band == "5G" && bandwidth == 160:
 		return []string{"5G 160M 信道2"}
+	case band == "6G" && bandwidth == 20:
+		return []string{"6G 20M 信道"}
+	case band == "6G" && bandwidth == 40:
+		return []string{"6G 40M 信道", "6G 40M+ 信道", "6G 40M- 信道"}
+	case band == "6G" && bandwidth == 80:
+		return []string{"6G 80M 信道", "6G 80M 信道1"}
+	case band == "6G" && bandwidth == 160:
+		return []string{"6G 160M 信道", "6G 160M 信道2"}
+	case band == "6G" && bandwidth == 320:
+		return []string{"6G 320M 信道"}
 	default:
 		return []string{fmt.Sprintf("%s %dM 信道", band, bandwidth)}
 	}
