@@ -828,9 +828,6 @@ func (e *APConfigEditor) generateHostapd() string {
 			sb.WriteString("ieee80211n=1\n")
 		} else if e.params.Band == "2.4G" {
 			sb.WriteString("ieee80211n=1\n")
-		} else if e.module.APConfig.Capabilities != nil && e.module.APConfig.Capabilities.ExplicitlyHasMode("n") {
-			// Some 6GHz 11be chips still require ieee80211n=1 (legacy HT signaling)
-			sb.WriteString("ieee80211n=1\n")
 		}
 	case "ax":
 		sb.WriteString("ieee80211ax=1\n")
@@ -838,8 +835,6 @@ func (e *APConfigEditor) generateHostapd() string {
 			sb.WriteString("ieee80211ac=1\n")
 			sb.WriteString("ieee80211n=1\n")
 		} else if e.params.Band == "2.4G" {
-			sb.WriteString("ieee80211n=1\n")
-		} else if e.module.APConfig.Capabilities != nil && e.module.APConfig.Capabilities.HasMode("n") {
 			sb.WriteString("ieee80211n=1\n")
 		}
 	case "ac":
