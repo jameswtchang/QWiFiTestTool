@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"qwifitesttool/internal/models"
@@ -131,4 +132,102 @@ func TestCalcPrimaryChannel6G(t *testing.T) {
 		t.Errorf("Expected 6G 20M ch 37 primary to be 37, got %d", ch)
 	}
 }
+
+func TestGenerateHostapdFiltering(t *testing.T) {
+	module := &models.WiFiModule{
+		ID:          "quectel_fme170q_865",
+		DisplayName: "Quectel FME170Q-865",
+		APConfig: models.APConfig{
+			FixedParams: []models.Param{
+				{Key: "beacon_int", Value: "100"},
+				{Key: "acs_exclude_6ghz_non_psc", Value: "1"},
+				{Key: "he_bss_color", Value: "15"},
+				{Key: "he_su_beamformer", Value: "1"},
+				{Key: "eht_oper_chwidth", Value: "3"},
+				{Key: "ieee80211w", Value: "2"},
+				{Key: "wpa_pairwise", Value: "CCMP"},
+			},
+		},
+	}
+
+	editor := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			CountryCode: "TW",
+			Band:        "5G",
+			Mode:        "ac",
+			Bandwidth:   80,
+			Channel:     36,
+			SSID:        "Test_AP",
+			Security:    "WPA3",
+			Password:    "12345678",
+		},
+	}
+
+	conf := editor.generateHostapd()
+
+	// Should contain 5G AC settings
+	if !strings.Contains(conf, "hw_mode=a") {
+		t.Errorf("Expected hw_mode=a")
+	}
+	if !strings.Contains(conf, "channel=36") {
+		t.Errorf("Expected channel=36")
+	}
+	if !strings.Contains(conf, "ieee80211ac=1") {
+		t.Errorf("Expected ieee80211ac=1")
+	}
+
+	// Should NOT contain HE, EHT, or 6G ACS params
+	if strings.Contains(conf, "he_bss_color") {
+		t.Errorf("5G AC config should not contain he_bss_color")
+	}
+	if strings.Contains(conf, "he_su_beamformer") {
+		t.Errorf("5G AC config should not contain he_su_beamformer")
+	}
+	if strings.Contains(conf, "eht_oper_chwidth") {
+		t.Errorf("5G AC config should not contain eht_oper_chwidth")
+	}
+	if strings.Contains(conf, "acs_exclude_6ghz_non_psc") {
+		t.Errorf("5G config should not contain acs_exclude_6ghz_non_psc")
+	}
+
+	// Should contain ieee80211w=2 exactly once (under Security)
+	count := strings.Count(conf, "ieee80211w=2")
+	if count != 1 {
+		t.Errorf("Expected ieee80211w=2 to appear exactly once, got %d", count)
+	}
+
+	// Should not have duplicate wpa_pairwise when rsn_pairwise is present
+	if strings.Contains(conf, "wpa_pairwise=CCMP") {
+		t.Errorf("Should not contain wpa_pairwise when rsn_pairwise is present")
+	}
+
+	// Test WPA2 mode skips sae_pwe and ieee80211w from FixedParams
+	editor.params.Security = "WPA2"
+	editor.module.APConfig.FixedParams = append(editor.module.APConfig.FixedParams, models.Param{Key: "sae_pwe", Value: "2"})
+	confWPA2 := editor.generateHostapd()
+	if strings.Contains(confWPA2, "sae_pwe") {
+		t.Errorf("WPA2 config should not contain sae_pwe")
+	}
+	if strings.Contains(confWPA2, "ieee80211w") {
+		t.Errorf("WPA2 config should not contain mandatory ieee80211w")
+	}
+}
+
+func TestOpClassBandwidthParsing(t *testing.T) {
+	editor := &APConfigEditor{}
+	cfg6G40M := map[string]string{
+		"hw_mode":  "a",
+		"channel":  "37",
+		"op_class": "132",
+	}
+	editor.applyProfileParams(cfg6G40M)
+	if editor.params.Band != "6G" {
+		t.Errorf("Expected Band=6G, got %s", editor.params.Band)
+	}
+	if editor.params.Bandwidth != 40 {
+		t.Errorf("Expected Bandwidth=40 for op_class 132, got %d", editor.params.Bandwidth)
+	}
+}
+
 

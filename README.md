@@ -86,21 +86,23 @@ su
 
 支援從 `/etc/hostapd.conf` 自動載入現有配置，並提供以下互動式修改：
 
-- **⚡ 快速規格預設精靈 (V1.06)**: 一鍵動態過濾模組極限能力，自動完成頻段 (2.4G/5G/6G/Sub-GHz)、協定 (be/ax/ac/n) 與頻寬 (320M~20M) 的組合配置，免除繁瑣計算。
+- **⚡ 快速規格預設精靈 (V1.09)**: 一鍵動態過濾模組極限能力，自動完成頻段 (2.4G/5G/6G/Sub-GHz)、協定 (be/ax/ac/n) 與頻寬 (320M~20M) 的組合配置，免除繁瑣計算。
 - **國家碼 (TW/CN/US...)**: 自動聯動可選頻道。
-- **動態中心頻道**: 自動計算 HT40+/HT40-、VHT 中心頻道，以及 6GHz 的 PSC/Block 基準。
-- **即時預覽與儲存**: 即時生成 `hostapd.conf` 與 `dnsmasq.conf` 並儲存至系統路徑。
+- **動態中心頻道與 6GHz PSC**: 自動計算 HT40+/HT40-、VHT 中心頻道，以及 6GHz 的 PSC/Block 基準與 operating class (131-137)。
+- **即時預覽與儲存**: 即時生成 `hostapd.conf` 與 `dnsmasq.conf` 並儲存至系統路徑，支援唯讀檔案系統自動 remount rw。
 
 ### STA 模式 [2] 編輯 wpa_supplicant.conf
 
 支援進階測試用連線策略：
-- **頻段鎖定 (V1.06)**: 動態查表產生 `freq_list`，支援鎖定 6G、5G(含/排除DFS)、2.4G 頻段。
-- **協定上限限制 (V1.06)**: 動態插入 `disable_eht` / `disable_he` / `disable_vht` 以測試向下相容性。
+- **頻段鎖定 (V1.09)**: 動態查表產生 `freq_list`，支援鎖定 6G、5G(含/排除DFS)、2.4G 頻段，且連線時自動篩選目標 AP。
+- **協定上限限制 (V1.09)**: 動態插入 `disable_eht` / `disable_he` / `disable_vht` 以測試向下相容性。
+- **政策保持**: 掃描連線後自動保留 `freq_list` 與 `disable_*` 設定，避免重新連線時策略遺失。
 
 ### AP 模式 [5] (優化)
 
+- **無配置自動引導**: 缺少 AP 配置時直接引導進入 `APConfigEditor` 完成設定並生成配置。
 - **自動清理**: 退出 (Ctrl+C) 時自動執行 `killall` 並關閉 `wlan0` 介面。
-- **多層級配置**: 優先載入 `/etc/` 配置，其次為 XML 預設值。
+- **多層級配置**: 優先載入 `/etc/` 自訂配置，其次為系統配置與 XML 預設值。
 
 ## 自訂模組配置 (XML v2)
 
@@ -141,17 +143,19 @@ su
 
 ## 支援模組
 
-| # | 模組 | 晶片 | 頻段 | 最高協議 | 狀態 |
-|---|------|------|------|----------|------|
-| 1 | Quectel FCS945R | RTL8733BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 2 | Quectel FCE863R | RTL8852BE | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| # | 模組 | 晶片 / 核心模組 | 頻段 | 最高協議 | 狀態 |
+|---|------|----------------|------|----------|------|
+| 1 | Quectel FCM360W | RTL8720DF | 2.4G/5G | WiFi 4 (n) | ⏳ 待驗證 |
+| 2 | Quectel FC21 | FC21 | 2.4G | WiFi 4 (b/g/n) | ⏳ 待驗證 |
 | 3 | Quectel FCS866R | RTL8852BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 4 | Quectel FCE867R | RTL8851BU | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 5 | Quectel FCS868R | RTL8852BP | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 6 | Quectel FCE861W | RTL8821CU | 2.4G/5G | WiFi 5 (ac) | ✅ 已驗證 |
-| 7 | Quectel FCS945RI | MT7663 | 2.4G/5G | WiFi 5 (ac) | ✅ 已驗證 |
-| 8 | Quectel FGH200M | MM8108 | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
-| 9 | Quectel FME164Q | QCA2064 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 4 | Quectel FCE863R | RTL8852BE | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 5 | Quectel FCS945R | RTL8733BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 6 | Quectel FCU741R | RTL8822CU | 2.4G/5G | WiFi 5 (ac) | ⏳ 待驗證 |
+| 7 | Quectel FCS961KL | QCA6696 / WCN3990 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 8 | Quectel FC905A | RTL8189FS | 2.4G | WiFi 4 (b/g/n) | ✅ 已驗證 |
+| 9 | Quectel FGH200M | MM8108 | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
+| 10 | Quectel FME164Q | QCA2064 / QCA2066 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
+| 11 | Quectel FME170Q-865 | QCA2076 / WCN7850 | 2.4G/5G/6G | WiFi 7 (be) 320M | ✅ 已驗證 |
 
 ## 技術細節
 
@@ -162,5 +166,6 @@ su
 
 ---
 
-**版本**: V1.08  
-**維護**: WiFi 驅動團隊 (Updated: 2026-09-11)
+**版本**: V1.09  
+**維護**: WiFi 驅動團隊 (Updated: 2026-09-15)
+

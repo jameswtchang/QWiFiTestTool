@@ -3,6 +3,7 @@ package wifi
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"qwifitesttool/internal/i18n"
@@ -19,11 +20,14 @@ func updateWpaSupplicantConfig(configPath, ssid, password, flags string) error {
 
 	content := string(data)
 
+	// Extract existing policy params (freq_list, disable_*) to preserve them across connections
+	policies := extractPolicyParams(content)
+
 	// Remove existing network block
 	content = removeNetworkBlock(content)
 
-	// Build new network block based on scan flags
-	networkBlock := buildNetworkBlock(ssid, password, flags)
+	// Build new network block based on scan flags and preserved policies
+	networkBlock := buildNetworkBlock(ssid, password, flags, policies)
 
 	// Combine config
 	newConfig := content + "\n" + networkBlock
@@ -31,11 +35,48 @@ func updateWpaSupplicantConfig(configPath, ssid, password, flags string) error {
 	// Write back
 	fmt.Println(i18n.Tf("cfg.updating", configPath))
 	if err := os.WriteFile(configPath, []byte(newConfig), 0600); err != nil {
-		return fmt.Errorf(i18n.T("cfg.write_fail"), err)
+		exec.Command("mount", "-o", "remount,rw", "/").Run()
+		if err2 := os.WriteFile(configPath, []byte(newConfig), 0600); err2 != nil {
+			return fmt.Errorf(i18n.T("cfg.write_fail"), err2)
+		}
 	}
 
 	fmt.Println(i18n.T("cfg.updated"))
 	return nil
+}
+
+// extractPolicyParams parses policy parameters from existing network blocks (e.g. freq_list, disable_eht)
+func extractPolicyParams(content string) map[string]string {
+	params := make(map[string]string)
+	lines := strings.Split(content, "\n")
+	inNetwork := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		noSpace := strings.ReplaceAll(trimmed, " ", "")
+		if strings.HasPrefix(noSpace, "network={") {
+			inNetwork = true
+			continue
+		}
+
+		if (trimmed == "}" || strings.HasPrefix(trimmed, "}")) && inNetwork {
+			inNetwork = false
+			continue
+		}
+
+		if inNetwork {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				v := strings.TrimSpace(parts[1])
+				switch k {
+				case "freq_list", "disable_eht", "disable_he", "disable_vht", "scan_ssid":
+					params[k] = v
+				}
+			}
+		}
+	}
+	return params
 }
 
 // removeNetworkBlock removes existing network={...} block from config
@@ -95,7 +136,7 @@ func deriveKeyMgmt(flags string) string {
 
 // buildNetworkBlock creates a network configuration block
 // flags is the raw flags string from wpa_cli scan_results
-func buildNetworkBlock(ssid, password, flags string) string {
+func buildNetworkBlock(ssid, password, flags string, policies map[string]string) string {
 	var block strings.Builder
 
 	block.WriteString("network={\n")
@@ -115,6 +156,11 @@ func buildNetworkBlock(ssid, password, flags string) string {
 		} else {
 			block.WriteString(fmt.Sprintf(" psk=\"%s\"\n", password))
 		}
+	}
+
+	// Preserve policy constraints (freq_list, disable_*)
+	for k, v := range policies {
+		block.WriteString(fmt.Sprintf(" %s=%s\n", k, v))
 	}
 
 	block.WriteString("}\n")

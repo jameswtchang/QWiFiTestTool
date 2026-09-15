@@ -10,44 +10,7 @@ import (
 
 // stopWpaSupplicant stops wpa_supplicant daemon with command logging
 func (c *Connector) stopWpaSupplicant() {
-	iface := c.module.Kernel.GetInterface()
-
-	fmt.Println("\n" + i18n.T("conn.stop_wpa"))
-	if c.log != nil {
-		c.log.LogEvent("Stopping wpa_supplicant daemon")
-	}
-
-	// Try graceful stop via wpa_cli
-	terminateCmd := fmt.Sprintf("%s -p %s -i %s terminate", c.wpaCliPath, c.ctrlInterface, iface)
-	fmt.Printf("[CMD] %s\n", terminateCmd)
-
-	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "terminate")
-	output, err := cmd.CombinedOutput()
-	if c.log != nil {
-		c.log.LogCmd(terminateCmd, output, err)
-	}
-	if err != nil {
-		fmt.Println(i18n.Tf("conn.wpa_cli_fail", err))
-	}
-
-	time.Sleep(1 * time.Second)
-
-	// Force kill if still running
-	for _, proc := range []string{"wpa_supplicant", "wpa_supplicant_s1g"} {
-		killCmd := fmt.Sprintf("pkill -9 %s", proc)
-		fmt.Printf("[CMD] %s\n", killCmd)
-		killOutput, killErr := exec.Command("pkill", "-9", proc).CombinedOutput()
-		if c.log != nil {
-			c.log.LogCmd(killCmd, killOutput, killErr)
-		}
-	}
-
-	c.daemonStarted = false
-	if c.wpaLog != nil {
-		c.wpaLog.Close()
-		c.wpaLog = nil
-	}
-	fmt.Println(i18n.T("conn.wpa_stopped2"))
+	c.Stop()
 }
 
 // forceCleanup performs force cleanup of network interface

@@ -68,15 +68,15 @@ func (c *Connector) Start() (bool, error) {
 	skipAutoConnect := false
 
 	// STEP 1: Check if already connected BEFORE starting wpa_supplicant
+	connected, ssid := c.checkConnectionStatusDirect()
 	hasIP, ipAddr := c.checkIPAddressDirect()
-	if hasIP {
-		fmt.Println(i18n.Tf("conn.already_ip", ipAddr))
 
-		connected, ssid := c.checkConnectionStatusDirect()
-		if connected {
-			fmt.Println(i18n.Tf("conn.current_net", ssid))
-			c.showConnectionInfoDirect()
+	if connected {
+		if hasIP {
+			fmt.Println(i18n.Tf("conn.already_ip", ipAddr))
 		}
+		fmt.Println(i18n.Tf("conn.current_net", ssid))
+		c.showConnectionInfoDirect()
 
 		fmt.Print(i18n.T("conn.ask_reconnect"))
 		var response string
@@ -90,7 +90,7 @@ func (c *Connector) Start() (bool, error) {
 		// User chose to disconnect
 		fmt.Println(i18n.T("conn.disconnecting2"))
 
-		c.stopWpaSupplicant()
+		c.Stop()
 		time.Sleep(1 * time.Second)
 
 		fmt.Println("\n" + i18n.T("conn.verify_disconnect"))
@@ -149,6 +149,10 @@ func (c *Connector) Start() (bool, error) {
 			fmt.Println(i18n.T("conn.invalid_scan"))
 			skipAutoConnect = true
 		}
+	} else if hasIP {
+		// Stale IP detected on interface without actual WiFi connection
+		fmt.Println(i18n.Tf("conn.stale_ip_cleanup", ipAddr))
+		c.forceCleanup()
 	}
 
 	// STEP 2: Load/prepare config
@@ -401,6 +405,36 @@ func (c *Connector) interactiveScanConnect() (bool, error) {
 		return false, fmt.Errorf(i18n.T("conn.scan_fail"), err)
 	}
 
+	cfgPath := c.configPath
+	if cfgPath == "/tmp/wpa_scan.conf" || cfgPath == "" {
+		confMgr := config.NewConfigManager("wpa_supplicant", c.module)
+		if path, _, err := confMgr.GetConfigPathSilent(); err == nil {
+			cfgPath = path
+		}
+	}
+
+	if cfgPath != "" {
+		if data, err := os.ReadFile(cfgPath); err == nil {
+			policies := extractPolicyParams(string(data))
+			if fl, ok := policies["freq_list"]; ok && strings.TrimSpace(fl) != "" {
+				allowedFreqs := make(map[string]bool)
+				for _, f := range strings.Fields(fl) {
+					allowedFreqs[f] = true
+				}
+				if len(allowedFreqs) > 0 {
+					var filtered []ScanResult
+					for _, net := range networks {
+						if allowedFreqs[net.Frequency] {
+							filtered = append(filtered, net)
+						}
+					}
+					fmt.Println(ui.Yellow + i18n.Tf("conn.scan_band_filter", len(filtered), len(networks)) + ui.Reset)
+					networks = filtered
+				}
+			}
+		}
+	}
+
 	PrintScanResults(networks)
 
 	if len(networks) == 0 {
@@ -525,15 +559,38 @@ func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 	return nil
 }
 
-// Stop stops the wpa_supplicant daemon
+// Stop stops the wpa_supplicant daemon, cleans up network interfaces, DHCP clients and IPs
 func (c *Connector) Stop() error {
-	if !c.daemonStarted {
-		return nil
+	iface := c.module.Kernel.GetInterface()
+
+	// 1. Graceful disconnect and terminate via wpa_cli if available
+	if c.wpaCliPath != "" && c.ctrlInterface != "" {
+		exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "disconnect").Run()
+		exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "terminate").Run()
+		time.Sleep(200 * time.Millisecond)
 	}
 
-	pkillPath := sys.FindCommand("pkill", "pkill")
-	exec.Command(pkillPath, "wpa_supplicant").Run()
-	exec.Command(pkillPath, "wpa_supplicant_s1g").Run()
+	// 2. Kill wpa_supplicant processes via both killall and pkill (-9)
+	for _, proc := range []string{"wpa_supplicant", "wpa_supplicant_s1g"} {
+		exec.Command("killall", "-9", proc).Run()
+		exec.Command("pkill", "-9", proc).Run()
+	}
+
+	// 3. Kill DHCP clients (udhcpc, dhclient)
+	for _, dhcp := range []string{"udhcpc", "dhclient"} {
+		exec.Command("killall", "-9", dhcp).Run()
+		exec.Command("pkill", "-9", dhcp).Run()
+	}
+
+	// 4. Flush IP address on interface and reset link state
+	c.forceCleanup()
+
+	// 5. Cleanup socket files and logs
+	c.cleanupSocketFiles()
+	if c.wpaLog != nil {
+		c.wpaLog.Close()
+		c.wpaLog = nil
+	}
 
 	c.daemonStarted = false
 	fmt.Println(i18n.T("conn.wpa_stopped"))
@@ -628,30 +685,39 @@ func (c *Connector) diagnoseConnectionFailure(statusOutput []byte, ssid, passwor
 	fmt.Println("\n" + i18n.T("conn.diag_reasons"))
 	reasons := []string{}
 
-	if password != "" {
-		reasons = append(reasons, i18n.T("conn.diag_pwd_wrong"))
-	}
-
-	cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "signal_poll")
-	if output, err := cmd.Output(); err == nil {
-		if strings.Contains(string(output), "RSSI=") {
-			reasons = append(reasons, i18n.T("conn.diag_signal_weak"))
-		}
-	}
-
-	if strings.Contains(statusStr, "wpa_state=DISCONNECTED") {
+	if strings.Contains(statusStr, "wpa_state=SCANNING") {
+		// If it's stuck in SCANNING, it usually means it can't find the AP on the allowed frequencies/signal
+		reasons = append(reasons, i18n.T("conn.diag_ap_not_found"))
+	} else if strings.Contains(statusStr, "wpa_state=4WAY_HANDSHAKE") || strings.Contains(statusStr, "wpa_state=DISCONNECTED") {
+		// Only suspect password or auth issues if we moved past scanning
 		if password != "" {
+			reasons = append(reasons, i18n.T("conn.diag_pwd_wrong"))
 			reasons = append(reasons, i18n.T("conn.diag_auth_timeout"))
 		} else {
 			reasons = append(reasons, i18n.T("conn.diag_need_pwd"))
+		}
+	} else {
+		// Fallback for other states
+		if password != "" {
+			reasons = append(reasons, i18n.T("conn.diag_pwd_wrong"))
+		}
+	}
+
+	// Only check signal strength if we're not stuck in SCANNING (RSSI is meaningless in that state)
+	if !strings.Contains(statusStr, "wpa_state=SCANNING") {
+		cmd := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "signal_poll")
+		if output, err := cmd.Output(); err == nil {
+			if strings.Contains(string(output), "RSSI=") {
+				reasons = append(reasons, i18n.T("conn.diag_signal_weak"))
+			}
 		}
 	}
 
 	if len(reasons) == 0 {
 		fmt.Println(i18n.T("conn.diag_unknown"))
 	} else {
-		for _, reason := range reasons {
-			fmt.Printf("  %s\n", reason)
+		for i, reason := range reasons {
+			fmt.Printf("  %d. %s\n", i+1, reason)
 		}
 	}
 	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)

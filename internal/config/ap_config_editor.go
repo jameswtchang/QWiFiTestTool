@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -234,7 +235,7 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 
 	// hw_mode → Band
 	if v, ok := configMap["hw_mode"]; ok {
-		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (v == "a" && configMap["channel"] == "37") {
+		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || (v == "a" && configMap["channel"] == "37") {
 			e.params.Band = "6G"
 		} else if v == "a" {
 			e.params.Band = "5G"
@@ -257,7 +258,7 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 		e.params.Mode = "n"
 	}
 
-	// ht_capab → Bandwidth
+	// ht_capab / op_class → Bandwidth
 	if ht, ok := configMap["ht_capab"]; ok {
 		if strings.Contains(ht, "HT40") {
 			e.params.Bandwidth = 40
@@ -273,6 +274,25 @@ func (e *APConfigEditor) parseExistingHostapd(path string) {
 	}
 	if configMap["eht_oper_chwidth"] == "3" {
 		e.params.Bandwidth = 320
+	}
+	// In 6GHz, bandwidth is directly indicated by op_class
+	if op, ok := configMap["op_class"]; ok {
+		switch op {
+		case "131":
+			e.params.Bandwidth = 20
+		case "132":
+			e.params.Bandwidth = 40
+		case "133":
+			e.params.Bandwidth = 80
+		case "134":
+			e.params.Bandwidth = 160
+		case "135": // 80+80 MHz (deprecated in WiFi 7, treat as 160)
+			e.params.Bandwidth = 160
+		case "136": // 20 MHz (6GHz discovery channel)
+			e.params.Bandwidth = 20
+		case "137":
+			e.params.Bandwidth = 320
+		}
 	}
 
 	// Security
@@ -761,10 +781,16 @@ func (e *APConfigEditor) generateAndPreview() (bool, error) {
 	fmt.Printf("\n" + ui.Yellow + ui.Bold + i18n.T("ap_ed.save_confirm") + ui.Reset)
 	if response := e.readLine(); response == "y" || response == "Y" {
 		if err := os.WriteFile(hostapdPath, []byte(hostapdContent), 0644); err != nil {
-			return false, fmt.Errorf(i18n.T("ap_ed.write_fail"), hostapdPath, err)
+			exec.Command("mount", "-o", "remount,rw", "/").Run()
+			if err2 := os.WriteFile(hostapdPath, []byte(hostapdContent), 0644); err2 != nil {
+				return false, fmt.Errorf(i18n.T("ap_ed.write_fail"), hostapdPath, err2)
+			}
 		}
 		if err := os.WriteFile(dnsmasqPath, []byte(dnsmasqContent), 0644); err != nil {
-			return false, fmt.Errorf(i18n.T("ap_ed.write_fail"), dnsmasqPath, err)
+			exec.Command("mount", "-o", "remount,rw", "/").Run()
+			if err2 := os.WriteFile(dnsmasqPath, []byte(dnsmasqContent), 0644); err2 != nil {
+				return false, fmt.Errorf(i18n.T("ap_ed.write_fail"), dnsmasqPath, err2)
+			}
 		}
 		fmt.Println("\n" + ui.Green + ui.Bold + i18n.T("ap_ed.saved") + ui.Reset)
 		fmt.Printf("  - %s\n", hostapdPath)
@@ -978,9 +1004,31 @@ func (e *APConfigEditor) generateHostapd() string {
 				"vht_oper_chwidth": true, "vht_oper_centr_freq_seg0_idx": true,
 				"he_oper_chwidth": true, "he_oper_centr_freq_seg0_idx": true,
 				"eht_oper_chwidth": true, "eht_oper_centr_freq_seg0_idx": true,
-				"op_class": true,
+				"op_class":     true,
+				"wpa_pairwise": true, // rsn_pairwise is already set in security block
+			}
+			if e.params.Security == "WPA3" {
+				skipKeys["ieee80211w"] = true // already set in security block
 			}
 			if skipKeys[p.Key] {
+				continue
+			}
+			// Skip SAE (WPA3) parameters and mandatory PMF if security is not WPA3
+			if e.params.Security != "WPA3" {
+				if strings.HasPrefix(p.Key, "sae_") || p.Key == "ieee80211w" {
+					continue
+				}
+			}
+			// Skip HE (WiFi 6) parameters if mode is not ax/be
+			if e.params.Mode != "ax" && e.params.Mode != "be" && strings.HasPrefix(p.Key, "he_") {
+				continue
+			}
+			// Skip EHT (WiFi 7) parameters if mode is not be
+			if e.params.Mode != "be" && strings.HasPrefix(p.Key, "eht_") {
+				continue
+			}
+			// Skip 6GHz ACS parameters if not in 6G band
+			if e.params.Band != "6G" && strings.HasPrefix(p.Key, "acs_exclude_6ghz") {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("%s=%s\n", p.Key, p.Value))
@@ -1251,7 +1299,7 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 
 	// hw_mode → Band
 	if v, ok := configMap["hw_mode"]; ok {
-		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (v == "a" && configMap["channel"] == "37") {
+		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || (v == "a" && configMap["channel"] == "37") {
 			e.params.Band = "6G"
 		} else if v == "a" {
 			e.params.Band = "5G"
@@ -1296,6 +1344,25 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 	}
 	if configMap["eht_oper_chwidth"] == "3" {
 		e.params.Bandwidth = 320
+	}
+	// In 6GHz, bandwidth is directly indicated by op_class
+	if op, ok := configMap["op_class"]; ok {
+		switch op {
+		case "131":
+			e.params.Bandwidth = 20
+		case "132":
+			e.params.Bandwidth = 40
+		case "133":
+			e.params.Bandwidth = 80
+		case "134":
+			e.params.Bandwidth = 160
+		case "135": // 80+80 MHz (deprecated in WiFi 7, treat as 160)
+			e.params.Bandwidth = 160
+		case "136": // 20 MHz (6GHz discovery channel)
+			e.params.Bandwidth = 20
+		case "137":
+			e.params.Bandwidth = 320
+		}
 	}
 
 	// Security from profile
@@ -1342,14 +1409,16 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 	// 1. Keep existing FixedParams that are:
 	//    - NOT managed by UI/generator
 	//    - NOT about to be replaced by this new profile's keys
-	for _, p := range e.module.APConfig.FixedParams {
-		if managedKeys[p.Key] {
-			continue // already generated by code
+	if e.module != nil {
+		for _, p := range e.module.APConfig.FixedParams {
+			if managedKeys[p.Key] {
+				continue // already generated by code
+			}
+			if profileKeys[p.Key] {
+				continue // will be replaced by the new profile value below
+			}
+			newFixed = append(newFixed, p)
 		}
-		if profileKeys[p.Key] {
-			continue // will be replaced by the new profile value below
-		}
-		newFixed = append(newFixed, p)
 	}
 
 	// 2. Add non-managed parameters from the profile
@@ -1359,5 +1428,7 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 		}
 	}
 
-	e.module.APConfig.FixedParams = newFixed
+	if e.module != nil {
+		e.module.APConfig.FixedParams = newFixed
+	}
 }

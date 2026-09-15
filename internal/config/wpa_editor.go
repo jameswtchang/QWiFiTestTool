@@ -252,24 +252,46 @@ func (e *WpaEditor) displayConfig(content string) {
 // interactiveEdit performs menu-based parameter editing
 func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 	params := GetWpaParams()
-	configMap := parseConfig(content)
+	config := parseConfig(content)
 	reader := e.reader
 
 	for {
 		// Display current config state
 		fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("wpa_ed.params_title") + " ==========" + ui.Reset)
-		e.displayConfigMap(configMap)
+		e.displayConfigMap(config)
 		fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 
 		// Display parameter menu
 		fmt.Println("\n" + ui.Yellow + ui.Bold + "========== " + i18n.T("wpa_ed.editable_title") + " ==========" + ui.Reset)
 		for i, param := range params {
-			if currentVal, exists := configMap[param.Key]; exists {
+			if currentVal, exists := config.GlobalParams[param.Key]; exists {
 				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+i18n.T("wpa_ed.current_val")+ui.Green+"%s"+ui.Reset+")\n", i+1, param.Key, currentVal)
 			} else {
 				fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+i18n.T("wpa_ed.not_set")+ui.Reset+")\n", i+1, param.Key)
 			}
 		}
+
+		idxBandLock := len(params) + 1
+		idxProtoLimit := len(params) + 2
+
+		fmt.Println(ui.Cyan + i18n.T("wpa_ed.section_limit") + ui.Reset)
+
+		bandLockStatus := i18n.T("wpa_ed.status_auto")
+		protoLimitStatus := i18n.T("wpa_ed.status_auto")
+
+		if len(config.Networks) > 0 {
+			net := config.Networks[0]
+			if _, ok := net.Params["freq_list"]; ok {
+				bandLockStatus = i18n.T("wpa_ed.status_set")
+			}
+			if net.Params["disable_eht"] != "" || net.Params["disable_he"] != "" || net.Params["disable_vht"] != "" {
+				protoLimitStatus = i18n.T("wpa_ed.status_limited")
+			}
+		}
+
+		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"%s"+ui.Reset+")\n", idxBandLock, i18n.T("wpa_ed.band_lock"), bandLockStatus)
+		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"%s"+ui.Reset+")\n", idxProtoLimit, i18n.T("wpa_ed.proto_limit"), protoLimitStatus)
+
 		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.done_edit"))
 		fmt.Println(ui.Yellow + ui.Bold + "================================" + ui.Reset)
 		fmt.Print(ui.Yellow + ui.Bold + i18n.T("wpa_ed.select_param") + ui.Reset)
@@ -284,8 +306,16 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 		var idx int
 		fmt.Sscanf(input, "%d", &idx)
 
-		if idx < 1 || idx > len(params) {
+		if idx < 1 || idx > idxProtoLimit {
 			fmt.Println(i18n.T("wpa_ed.invalid_sel"))
+			continue
+		}
+
+		if idx == idxBandLock {
+			e.handleBandLock(config)
+			continue
+		} else if idx == idxProtoLimit {
+			e.handleProtoLimit(config)
 			continue
 		}
 
@@ -298,7 +328,7 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 		fmt.Printf(i18n.T("wpa.param.default")+"%s\n", param.DefaultValue)
 		fmt.Printf(i18n.T("wpa.param.example")+"%s\n", param.Example)
 
-		if current, exists := configMap[param.Key]; exists {
+		if current, exists := config.GlobalParams[param.Key]; exists {
 			fmt.Printf(i18n.Tf("wpa_ed.current_val2", current)+"\n")
 		}
 
@@ -307,24 +337,152 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 		value = strings.TrimSpace(value)
 
 		if value == "d" || value == "D" {
-			delete(configMap, param.Key)
+			delete(config.GlobalParams, param.Key)
 			fmt.Printf(i18n.Tf("wpa_ed.removed", param.Key)+"\n")
 		} else {
 			if value == "" {
 				value = param.DefaultValue
 			}
-			configMap[param.Key] = value
+			config.GlobalParams[param.Key] = value
 			fmt.Printf(i18n.Tf("wpa_ed.set", param.Key, value)+"\n")
 		}
 	}
 
-	newContent := rebuildConfig(content, configMap)
+	newContent := rebuildConfig(content, config)
 	return newContent, nil
 }
 
+func (e *WpaEditor) getFirstNetwork(config *WpaConfig) *WpaNetwork {
+	if len(config.Networks) == 0 {
+		net := &WpaNetwork{
+			Params: map[string]string{
+				"ssid": "\"DummyAP_For_Test\"",
+			},
+		}
+		config.Networks = append(config.Networks, net)
+	}
+	return config.Networks[0]
+}
+
+func (e *WpaEditor) handleBandLock(config *WpaConfig) {
+	fmt.Println("\n" + ui.Yellow + ui.Bold + i18n.T("wpa_ed.band_lock_title") + ui.Reset)
+	fmt.Println(ui.Cyan + "[1]" + ui.Reset + " " + i18n.T("wpa_ed.band_lock.1"))
+	fmt.Println(ui.Cyan + "[2]" + ui.Reset + " " + i18n.T("wpa_ed.band_lock.2"))
+	fmt.Println(ui.Cyan + "[3]" + ui.Reset + " " + i18n.T("wpa_ed.band_lock.3"))
+	fmt.Println(ui.Cyan + "[4]" + ui.Reset + " " + i18n.T("wpa_ed.band_lock.4"))
+	fmt.Println(ui.Cyan + "[5]" + ui.Reset + " " + i18n.T("wpa_ed.band_lock.5"))
+	fmt.Println(ui.Cyan + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.band_lock.0"))
+	fmt.Print(ui.Yellow + i18n.T("wpa_ed.band_lock_select") + ui.Reset)
+
+	input, _ := e.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	if input == "0" || input == "" {
+		return
+	}
+
+	net := e.getFirstNetwork(config)
+
+	if input == "1" {
+		delete(net.Params, "freq_list")
+		fmt.Println(i18n.T("wpa_ed.band_lock_cleared"))
+		return
+	}
+
+	// Prepare parameters for channel lookup
+	country := strings.ToUpper(strings.Trim(strings.TrimSpace(config.GlobalParams["country"]), "\""))
+	if country == "" {
+		country = "US"
+	}
+
+	db, err := models.LoadChannelLookup()
+	if err != nil {
+		fmt.Printf(i18n.Tf("wpa_ed.db_load_fail", err) + "\n")
+		return
+	}
+
+	var freqs []string
+
+	if input == "2" {
+		// 6GHz
+		channels := db.LookupChannels(country, "所有类型AP", "6G", 20)
+		for _, ch := range channels {
+			freqs = append(freqs, fmt.Sprintf("%d", models.ChannelToFreq("6G", ch)))
+		}
+	} else if input == "3" || input == "4" {
+		// 5GHz
+		channels := db.LookupChannels(country, "所有类型AP", "5G", 20)
+		for _, ch := range channels {
+			if input == "3" && models.IsDFSChannel(ch) {
+				continue // 排除 DFS
+			}
+			freqs = append(freqs, fmt.Sprintf("%d", models.ChannelToFreq("5G", ch)))
+		}
+	} else if input == "5" {
+		// 2.4GHz
+		channels := db.LookupChannels(country, "所有类型AP", "2.4G", 20)
+		for _, ch := range channels {
+			freqs = append(freqs, fmt.Sprintf("%d", models.ChannelToFreq("2.4G", ch)))
+		}
+	} else {
+		fmt.Println(i18n.T("wpa_ed.invalid_sel"))
+		return
+	}
+
+	if len(freqs) == 0 {
+		fmt.Println(i18n.T("wpa_ed.band_lock_no_ch"))
+		return
+	}
+
+	net.Params["freq_list"] = strings.Join(freqs, " ")
+	fmt.Println(i18n.Tf("wpa_ed.band_lock_applied", len(freqs)))
+}
+
+func (e *WpaEditor) handleProtoLimit(config *WpaConfig) {
+	fmt.Println("\n" + ui.Yellow + ui.Bold + i18n.T("wpa_ed.proto_limit_title") + ui.Reset)
+	fmt.Println(ui.Cyan + "[1]" + ui.Reset + " " + i18n.T("wpa_ed.proto_limit.1"))
+	fmt.Println(ui.Cyan + "[2]" + ui.Reset + " " + i18n.T("wpa_ed.proto_limit.2"))
+	fmt.Println(ui.Cyan + "[3]" + ui.Reset + " " + i18n.T("wpa_ed.proto_limit.3"))
+	fmt.Println(ui.Cyan + "[4]" + ui.Reset + " " + i18n.T("wpa_ed.proto_limit.4"))
+	fmt.Println(ui.Cyan + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.proto_limit.0"))
+	fmt.Print(ui.Yellow + i18n.T("wpa_ed.proto_limit_select") + ui.Reset)
+
+	input, _ := e.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	if input == "0" || input == "" {
+		return
+	}
+
+	net := e.getFirstNetwork(config)
+
+	// 先清除舊有設定
+	delete(net.Params, "disable_eht")
+	delete(net.Params, "disable_he")
+	delete(net.Params, "disable_vht")
+
+	if input == "1" {
+		fmt.Println(i18n.T("wpa_ed.proto_limit_cleared"))
+	} else if input == "2" {
+		net.Params["disable_eht"] = "1"
+		fmt.Println(i18n.T("wpa_ed.proto_limit_wifi6"))
+	} else if input == "3" {
+		net.Params["disable_eht"] = "1"
+		net.Params["disable_he"] = "1"
+		fmt.Println(i18n.T("wpa_ed.proto_limit_wifi5"))
+	} else if input == "4" {
+		net.Params["disable_eht"] = "1"
+		net.Params["disable_he"] = "1"
+		net.Params["disable_vht"] = "1"
+		fmt.Println(i18n.T("wpa_ed.proto_limit_wifi4"))
+	} else {
+		fmt.Println(i18n.T("wpa_ed.invalid_sel"))
+	}
+}
+
 // displayConfigMap shows current config key-value pairs in order
-func (e *WpaEditor) displayConfigMap(configMap map[string]string) {
-	if len(configMap) == 0 {
+func (e *WpaEditor) displayConfigMap(config *WpaConfig) {
+	if len(config.GlobalParams) == 0 && len(config.Networks) == 0 {
 		fmt.Println("  " + i18n.T("wpa_ed.empty"))
 		return
 	}
@@ -334,24 +492,53 @@ func (e *WpaEditor) displayConfigMap(configMap map[string]string) {
 	shown := make(map[string]bool)
 
 	for _, param := range params {
-		if val, exists := configMap[param.Key]; exists {
+		if val, exists := config.GlobalParams[param.Key]; exists {
 			fmt.Printf("  %s=%s\n", param.Key, val)
 			shown[param.Key] = true
 		}
 	}
 
-	// Show remaining params (ctrl_interface, etc.)
-	for key, val := range configMap {
+	// Show remaining global params (ctrl_interface, etc.)
+	for key, val := range config.GlobalParams {
 		if !shown[key] {
 			fmt.Printf("  %s=%s\n", key, val)
 		}
 	}
+
+	// Show network params
+	for i, net := range config.Networks {
+		ssid := net.Params["ssid"]
+		if ssid == "" {
+			ssid = "<unknown>"
+		}
+		fmt.Printf("\n  [Network %d: %s]\n", i+1, ssid)
+		for key, val := range net.Params {
+			if key != "ssid" {
+				fmt.Printf("    %s=%s\n", key, val)
+			}
+		}
+	}
 }
 
-// parseConfig parses config content into a map
-func parseConfig(content string) map[string]string {
-	configMap := make(map[string]string)
+// WpaNetwork represents a parsed network block
+type WpaNetwork struct {
+	Params map[string]string
+}
+
+// WpaConfig represents the parsed wpa_supplicant.conf
+type WpaConfig struct {
+	GlobalParams map[string]string
+	Networks     []*WpaNetwork
+}
+
+// parseConfig parses config content into a structured WpaConfig
+func parseConfig(content string) *WpaConfig {
+	config := &WpaConfig{
+		GlobalParams: make(map[string]string),
+		Networks:     make([]*WpaNetwork, 0),
+	}
 	scanner := bufio.NewScanner(strings.NewReader(content))
+	var currentNetwork *WpaNetwork
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -361,70 +548,137 @@ func parseConfig(content string) map[string]string {
 			continue
 		}
 
+		noSpace := strings.ReplaceAll(line, " ", "")
+		if strings.HasPrefix(noSpace, "network={") {
+			currentNetwork = &WpaNetwork{
+				Params: make(map[string]string),
+			}
+			config.Networks = append(config.Networks, currentNetwork)
+			continue
+		}
+
+		if (line == "}" || strings.HasPrefix(line, "}")) && currentNetwork != nil {
+			currentNetwork = nil
+			continue
+		}
+
 		// Parse key=value
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
-			configMap[parts[0]] = parts[1]
+			k := strings.TrimSpace(parts[0])
+			v := strings.TrimSpace(parts[1])
+			if currentNetwork != nil {
+				currentNetwork.Params[k] = v
+			} else {
+				config.GlobalParams[k] = v
+			}
 		}
 	}
 
-	return configMap
+	return config
 }
 
 // rebuildConfig rebuilds the config file with updated parameters
-func rebuildConfig(originalContent string, configMap map[string]string) string {
+func rebuildConfig(originalContent string, config *WpaConfig) string {
 	var sb strings.Builder
 	scanner := bufio.NewScanner(strings.NewReader(originalContent))
-	updatedKeys := make(map[string]bool)
+	
+	updatedGlobalKeys := make(map[string]bool)
+	
+	inNetwork := false
+	networkIdx := -1
+	var currentNetworkKeys map[string]bool
 
-	// First pass: update existing lines
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		// Skip old "# Additional parameters" markers to prevent accumulation
 		if trimmed == "# Additional parameters" {
 			continue
 		}
 
-		// Keep other comments and empty lines
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			sb.WriteString(line + "\n")
 			continue
 		}
 
-		// Check if this line is a key=value pair
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) == 2 {
-			key := parts[0]
-			// Skip if this key was already written (duplicate in original file)
-			if updatedKeys[key] {
-				continue
-			}
-			if newValue, exists := configMap[key]; exists {
-				sb.WriteString(fmt.Sprintf("%s=%s\n", key, newValue))
-				updatedKeys[key] = true
-			}
-			// Key not in configMap → deleted, skip this line
+		noSpace := strings.ReplaceAll(trimmed, " ", "")
+		if strings.HasPrefix(noSpace, "network={") {
+			inNetwork = true
+			networkIdx++
+			currentNetworkKeys = make(map[string]bool)
+			sb.WriteString(line + "\n")
 			continue
 		}
 
-		// Keep non key=value lines (network block braces, etc.)
+		if (trimmed == "}" || strings.HasPrefix(trimmed, "}")) && inNetwork {
+			if networkIdx >= 0 && networkIdx < len(config.Networks) {
+				net := config.Networks[networkIdx]
+				for k, v := range net.Params {
+					if !currentNetworkKeys[k] {
+						sb.WriteString(fmt.Sprintf("\t%s=%s\n", k, v))
+					}
+				}
+			}
+			sb.WriteString(line + "\n")
+			inNetwork = false
+			continue
+		}
+
+		parts := strings.SplitN(trimmed, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			
+			if inNetwork {
+				if currentNetworkKeys[key] {
+					continue
+				}
+				if networkIdx >= 0 && networkIdx < len(config.Networks) {
+					net := config.Networks[networkIdx]
+					if newValue, exists := net.Params[key]; exists {
+						sb.WriteString(fmt.Sprintf("\t%s=%s\n", key, newValue))
+						currentNetworkKeys[key] = true
+					}
+				} else {
+					sb.WriteString(line + "\n")
+				}
+			} else {
+				if updatedGlobalKeys[key] {
+					continue
+				}
+				if newValue, exists := config.GlobalParams[key]; exists {
+					sb.WriteString(fmt.Sprintf("%s=%s\n", key, newValue))
+					updatedGlobalKeys[key] = true
+				}
+			}
+			continue
+		}
+
 		sb.WriteString(line + "\n")
 	}
 
-	// Second pass: add new parameters only if there are any
+	// Add new networks
+	for i := networkIdx + 1; i < len(config.Networks); i++ {
+		sb.WriteString("\nnetwork={\n")
+		net := config.Networks[i]
+		for k, v := range net.Params {
+			sb.WriteString(fmt.Sprintf("\t%s=%s\n", k, v))
+		}
+		sb.WriteString("}\n")
+	}
+
+	// Add new global params
 	hasNew := false
-	for key := range configMap {
-		if !updatedKeys[key] {
+	for key := range config.GlobalParams {
+		if !updatedGlobalKeys[key] {
 			hasNew = true
 			break
 		}
 	}
 	if hasNew {
 		sb.WriteString("\n# Additional parameters\n")
-		for key, value := range configMap {
-			if !updatedKeys[key] {
+		for key, value := range config.GlobalParams {
+			if !updatedGlobalKeys[key] {
 				sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 			}
 		}

@@ -38,9 +38,29 @@ func (c *Connector) checkIPAddressDirect() (bool, string) {
 
 // checkConnectionStatusDirect tries to get connection status without requiring running wpa_supplicant
 func (c *Connector) checkConnectionStatusDirect() (bool, string) {
-	// Try to read /proc/net/wireless to see if connected
 	iface := c.module.Kernel.GetInterface()
 
+	// 1. Try modern 'iw dev <iface> link'
+	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
+		outStr := string(linkOut)
+		if strings.Contains(outStr, "Connected to ") {
+			for _, line := range strings.Split(outStr, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "SSID: ") {
+					ssid := strings.TrimPrefix(line, "SSID: ")
+					if ssid != "" {
+						return true, ssid
+					}
+				}
+			}
+			return true, "Connected"
+		}
+		if strings.Contains(outStr, "Not connected.") {
+			return false, ""
+		}
+	}
+
+	// 2. Fallback to iwconfig
 	cmd := exec.Command("iwconfig", iface)
 	output, err := cmd.Output()
 	if err != nil {

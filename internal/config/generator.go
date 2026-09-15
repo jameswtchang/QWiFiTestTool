@@ -81,6 +81,7 @@ func GenerateWpaSupplicantConfig(module *models.WiFiModule, ctrlInterface, ssid,
 }
 
 // GenerateHostapdConfig generates hostapd configuration file content
+// Deprecated: Use APConfigEditor and generateHostapd instead.
 func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band string) string {
 	var sb strings.Builder
 
@@ -155,10 +156,13 @@ func GenerateHostapdConfig(module *models.WiFiModule, ssid, password, band strin
 		// Skip parameters we've already set
 		if key == "interface" || key == "driver" || key == "ssid" ||
 			key == "hw_mode" || key == "channel" || key == "wpa" ||
-			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_passphrase" || key == "wpa_key_mgmt" || key == "ieee80211w" {
+			key == "rsn_pairwise" || key == "sae_password" || key == "wpa_passphrase" || key == "wpa_key_mgmt" || key == "ieee80211w" || key == "wpa_pairwise" {
 			continue
 		}
 		if (band == "6G" || band == "6g") && (key == "ieee80211n" || key == "ieee80211ac" || key == "ht_capab" || key == "vht_capab" || key == "vht_oper_chwidth" || key == "vht_oper_centr_freq_seg0_idx") {
+			continue
+		}
+		if band != "6G" && band != "6g" && strings.HasPrefix(key, "acs_exclude_6ghz") {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))

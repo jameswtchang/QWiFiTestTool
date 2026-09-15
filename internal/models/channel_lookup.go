@@ -48,7 +48,7 @@ func (db *ChannelLookupDB) ListCountryCodes() []string {
 // FindCountry returns the CountryEntry for a given country code
 func (db *ChannelLookupDB) FindCountry(code string) *CountryEntry {
 	for i := range db.Countries {
-		if db.Countries[i].CountryCode == code {
+		if strings.EqualFold(db.Countries[i].CountryCode, code) {
 			return &db.Countries[i]
 		}
 	}
@@ -195,4 +195,29 @@ func ParseChannelString(s string) []int {
 	}
 
 	return channels
+}
+
+// ChannelToFreq converts a WiFi channel number to its frequency in MHz
+func ChannelToFreq(band string, ch int) int {
+	if band == "2.4G" {
+		if ch >= 1 && ch <= 13 {
+			return 2407 + (ch * 5)
+		}
+		if ch == 14 {
+			return 2484
+		}
+	} else if band == "5G" {
+		return 5000 + (ch * 5)
+	} else if band == "6G" {
+		if ch == 2 {
+			return 5935
+		}
+		return 5950 + (ch * 5)
+	}
+	return 0
+}
+
+// IsDFSChannel returns true if the 5GHz channel is a DFS channel (usually 52-144)
+func IsDFSChannel(ch int) bool {
+	return ch >= 52 && ch <= 144
 }

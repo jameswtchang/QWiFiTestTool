@@ -50,6 +50,24 @@ func (cm *ConfigManager) GetConfigPath() (string, bool, error) {
 	return generatedPath, false, nil
 }
 
+// GetConfigPathSilent returns the config path without logging to stdout
+func (cm *ConfigManager) GetConfigPathSilent() (string, bool, error) {
+	customPath := cm.getCustomConfigPath()
+	if fileExists(customPath) {
+		return customPath, true, nil
+	}
+
+	systemPaths := cm.getSystemConfigPaths()
+	for _, path := range systemPaths {
+		if fileExists(path) {
+			return path, true, nil
+		}
+	}
+
+	generatedPath := cm.getGeneratedConfigPath()
+	return generatedPath, false, nil
+}
+
 // SaveAsCustomConfig saves current config as custom config for future use
 func (cm *ConfigManager) SaveAsCustomConfig(content string) error {
 	customPath := cm.getCustomConfigPath()

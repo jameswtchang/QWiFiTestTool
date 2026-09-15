@@ -1,7 +1,7 @@
 package wifi
 
 import (
-	"bufio"
+
 	"fmt"
 	"os"
 	"os/exec"
@@ -74,21 +74,24 @@ func (h *Hotspot) setupHostapdConfig() error {
 	if exists {
 		h.printConfigContent("hostapd", configPath)
 	} else {
-		// Interactive wizard
-		ssid, password, band, err := h.promptConfig()
+		fmt.Println("[INFO] 找不到系統 AP 配置檔。將引導您進入 AP 配置編輯器...")
+		
+		editor, err := config.NewAPConfigEditor(h.module)
 		if err != nil {
-			return err
+			return fmt.Errorf("初始化 AP 配置編輯器失敗: %w", err)
 		}
-
-		configContent := config.GenerateHostapdConfig(h.module, ssid, password, band)
-		if err := config.SaveConfig(h.hostapdConfig, configContent); err != nil {
-			return err
+		if err := editor.Start(); err != nil {
+			return fmt.Errorf("AP 配置編輯失敗: %w", err)
 		}
-		fmt.Println(i18n.Tf("hotspot.hostapd_gen", h.hostapdConfig))
-
-		if confMgr.PromptSaveCustom() {
-			confMgr.SaveAsCustomConfig(configContent)
+		
+		// 編輯器完成後，重新取得實際生成的配置路徑
+		configPath, exists, err = confMgr.GetConfigPath()
+		if err != nil || !exists {
+			return fmt.Errorf("未產生有效配置檔，無法啟動 AP")
 		}
+		h.hostapdConfig = configPath
+		
+		h.printConfigContent("hostapd", configPath)
 	}
 
 	return nil
@@ -162,34 +165,7 @@ func (h *Hotspot) printConfigContent(name, path string) {
 	fmt.Println("----------------------------------------")
 }
 
-// promptConfig prompts user for hotspot configuration
-func (h *Hotspot) promptConfig() (ssid, password, band string, err error) {
-	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print(i18n.T("hotspot.prompt_ssid"))
-	ssid, _ = reader.ReadString('\n')
-	ssid = strings.TrimSpace(ssid)
-	if ssid == "" {
-		return "", "", "", fmt.Errorf("SSID cannot be empty")
-	}
-
-	fmt.Print(i18n.T("hotspot.prompt_pwd"))
-	password, _ = reader.ReadString('\n')
-	password = strings.TrimSpace(password)
-
-	if password != "" && len(password) < 8 {
-		return "", "", "", fmt.Errorf("password must be at least 8 characters")
-	}
-
-	fmt.Print(i18n.T("hotspot.prompt_band"))
-	band, _ = reader.ReadString('\n')
-	band = strings.TrimSpace(band)
-	if band == "" {
-		band = "2.4G"
-	}
-
-	return ssid, password, band, nil
-}
 
 // startServices starts hostapd and dnsmasq with logging
 func (h *Hotspot) startServices() error {
@@ -472,43 +448,59 @@ func (h *Hotspot) showAPInfo() {
 	channel := configMap["channel"]
 	band := "2.4GHz"
 	modeStr := ""
+	
 	if configMap["ieee80211ah"] == "1" {
 		band = "Sub-GHz (802.11ah HaLow)"
 		modeStr = "802.11ah HaLow"
-	} else if configMap["ieee80211be"] == "1" || configMap["op_class"] == "137" {
-		band = "6GHz"
-		bw := "20MHz"
-		if configMap["op_class"] == "137" || configMap["eht_oper_chwidth"] == "3" {
-			bw = "320MHz"
-		} else if configMap["op_class"] == "134" || configMap["eht_oper_chwidth"] == "2" {
-			bw = "160MHz"
-		} else if configMap["op_class"] == "133" {
-			bw = "80MHz"
-		} else if configMap["op_class"] == "132" {
-			bw = "40MHz"
-		}
-		modeStr = fmt.Sprintf("802.11be WiFi 7 (%s)", bw)
-	} else if configMap["ieee80211ax"] == "1" {
-		if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (configMap["hw_mode"] == "a" && channel == "37") {
-			band = "6GHz"
-		} else if configMap["hw_mode"] == "a" {
-			band = "5GHz"
-		}
-		modeStr = "802.11ax WiFi 6"
-	} else if configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["acs_exclude_6ghz_non_psc"] == "1" || (configMap["hw_mode"] == "a" && channel == "37") {
-		band = "6GHz"
-	} else if configMap["hw_mode"] == "a" {
-		band = "5GHz"
-		if configMap["ieee80211ac"] == "1" {
-			modeStr = "802.11ac WiFi 5"
-		} else {
-			modeStr = "802.11a/n"
-		}
-	} else {
-		if configMap["ieee80211n"] == "1" {
+	} else if configMap["hw_mode"] == "g" || configMap["hw_mode"] == "b" {
+		band = "2.4GHz"
+		if configMap["ieee80211be"] == "1" {
+			modeStr = "802.11be WiFi 7"
+		} else if configMap["ieee80211ax"] == "1" {
+			modeStr = "802.11ax WiFi 6"
+		} else if configMap["ieee80211n"] == "1" {
 			modeStr = "802.11n WiFi 4"
 		} else {
 			modeStr = "802.11b/g"
+		}
+	} else if configMap["hw_mode"] == "a" {
+		// hw_mode == "a" (5GHz or 6GHz)
+		is6GHz := configMap["op_class"] == "131" || configMap["op_class"] == "132" || configMap["op_class"] == "133" || configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["op_class"] == "136" || configMap["op_class"] == "137" || channel == "37"
+
+		if is6GHz {
+			band = "6GHz"
+		} else {
+			band = "5GHz"
+		}
+
+		if configMap["ieee80211be"] == "1" || configMap["op_class"] == "137" {
+			bw := "20MHz"
+			if configMap["op_class"] == "137" || configMap["eht_oper_chwidth"] == "3" {
+				bw = "320MHz"
+			} else if configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["eht_oper_chwidth"] == "2" {
+				bw = "160MHz"
+			} else if configMap["op_class"] == "133" || configMap["eht_oper_chwidth"] == "1" || configMap["vht_oper_chwidth"] == "1" || configMap["he_oper_chwidth"] == "1" {
+				bw = "80MHz"
+			} else if configMap["op_class"] == "132" || strings.Contains(configMap["ht_capab"], "HT40") {
+				bw = "40MHz"
+			}
+			modeStr = fmt.Sprintf("802.11be WiFi 7 (%s)", bw)
+		} else if configMap["ieee80211ax"] == "1" {
+			bw := "20MHz"
+			if configMap["op_class"] == "134" || configMap["op_class"] == "135" || configMap["he_oper_chwidth"] == "2" {
+				bw = "160MHz"
+			} else if configMap["op_class"] == "133" || configMap["he_oper_chwidth"] == "1" || configMap["vht_oper_chwidth"] == "1" {
+				bw = "80MHz"
+			} else if configMap["op_class"] == "132" || strings.Contains(configMap["ht_capab"], "HT40") {
+				bw = "40MHz"
+			}
+			modeStr = fmt.Sprintf("802.11ax WiFi 6 (%s)", bw)
+		} else if configMap["ieee80211ac"] == "1" {
+			modeStr = "802.11ac WiFi 5"
+		} else if configMap["ieee80211n"] == "1" {
+			modeStr = "802.11n WiFi 4"
+		} else {
+			modeStr = "802.11a"
 		}
 	}
 
