@@ -356,7 +356,8 @@ func (e *WpaEditor) getFirstNetwork(config *WpaConfig) *WpaNetwork {
 	if len(config.Networks) == 0 {
 		net := &WpaNetwork{
 			Params: map[string]string{
-				"ssid": "\"DummyAP_For_Test\"",
+				"ssid":     "\"DummyAP_For_Test\"",
+				"key_mgmt": "NONE",
 			},
 		}
 		config.Networks = append(config.Networks, net)

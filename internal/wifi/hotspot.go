@@ -209,7 +209,7 @@ func (h *Hotspot) startServices() error {
 	// after beacon is set; USB/SDIO modules (Realtek, MTK) may report 0.00 dBm permanently.
 	isPCIe := strings.Contains(h.module.Kernel.PreloadKo, "pcie") || strings.Contains(h.module.Kernel.PreloadKo, "cnss")
 	apReady := false
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 15; i++ {
 		time.Sleep(1 * time.Second)
 		out, err := exec.Command("iw", "dev", h.module.Kernel.GetInterface(), "info").Output()
 		if err != nil {
