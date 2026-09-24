@@ -15,6 +15,7 @@ type PlatformInfo struct {
 	Platform            string
 	WpaSupplicantSocket string
 	WpaCliPath          string
+	WpaSupplicantPath   string
 }
 
 // DetectPlatform detects the current platform and returns platform-specific information
@@ -28,6 +29,7 @@ func DetectPlatform() *PlatformInfo {
 		info.WpaSupplicantSocket = detectAndroidWpaSocket()
 		// Try to find wpa_cli in PATH, fallback to common Android locations
 		info.WpaCliPath = FindCommand("wpa_cli", "/system/bin/wpa_cli")
+		info.WpaSupplicantPath = FindCommand("wpa_supplicant", "/system/bin/wpa_supplicant")
 	} else {
 		// Linux
 		info.IsLinux = true
@@ -35,6 +37,7 @@ func DetectPlatform() *PlatformInfo {
 		info.WpaSupplicantSocket = detectLinuxWpaSocket()
 		// Try to find wpa_cli in PATH, fallback to common Linux locations
 		info.WpaCliPath = FindCommand("wpa_cli", "/usr/sbin/wpa_cli")
+		info.WpaSupplicantPath = FindCommand("wpa_supplicant", "/usr/sbin/wpa_supplicant")
 	}
 
 	return info
@@ -97,6 +100,7 @@ func (pi *PlatformInfo) Print() {
 	fmt.Println("\n" + ui.Cyan + ui.Bold + "========== 平台資訊 ==========" + ui.Reset)
 	fmt.Printf(ui.Bold+"平台: "+ui.Green+"%s"+ui.Reset+"\n", pi.Platform)
 	fmt.Printf(ui.Bold+"wpa_supplicant Socket: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaSupplicantSocket)
+	fmt.Printf(ui.Bold+"wpa_supplicant 路徑: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaSupplicantPath)
 	fmt.Printf(ui.Bold+"wpa_cli 路徑: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaCliPath)
 	fmt.Println(ui.Cyan + ui.Bold + "==============================" + ui.Reset)
 }

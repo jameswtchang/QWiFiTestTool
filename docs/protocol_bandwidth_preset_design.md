@@ -118,10 +118,11 @@
 [11] ──── 連線頻段與協定限制 ────    <--- 新增分隔
 [12] 頻段鎖定           (目前: 自動)
 [13] 協定上限限制        (目前: 自動)
+[14] 頻寬上限限制        (目前: 自動)
 [0]  完成編輯
 ```
 
-#### [12] 頻段鎖定（支援與 [13] 組合使用）：
+#### [12] 頻段鎖定（支援與 [13]、[14] 組合使用）：
 ```text
 頻段鎖定:
   [1] 全自動 (不設限)  ← 選此項會主動清除已設定的 freq_list
@@ -135,7 +136,7 @@
   - 根據 `CountryCode` 查詢 `ChannelLookupDB` 取得合法頻道號（Channel Number）。
   - **必須實作 `ChannelToFreq(band, ch)` 將頻道號轉換為頻率 (MHz)**（例如：6GHz 需套用 `5950 + ch*5`），因為 `wpa_supplicant.conf` 僅接受 MHz。
 
-#### [13] 協定上限限制（支援與 [12] 組合使用）：
+#### [13] 協定上限限制（支援與 [12]、[14] 組合使用）：
 ```text
 協定上限限制:
   [1] 全自動 (不設限)  ← 選此項會主動清除 disable_eht/he/vht
@@ -145,21 +146,41 @@
   [0] 返回
 ```
 
+#### [14] 頻寬上限限制（支援與 [12]、[13] 組合使用）：
+```text
+頻寬上限限制:
+  [1] 全自動 (不設限)  ← 選此項會主動清除 disable_ht40
+  [2] 強制 20 MHz (停用 HT40/寬頻寬) → disable_ht40=1
+  [0] 返回
+```
+
 #### 組合使用範例：
-用戶可以同時設定 `[12] 鎖定 5GHz` + `[13] 最高 WiFi 6`，產出的 `wpa_supplicant.conf` 中 `network={}` 區塊內會同時包含：
+用戶可以同時設定 `[12] 鎖定 5GHz` + `[13] 最高 WiFi 6` + `[14] 強制 20MHz`，產出的 `wpa_supplicant.conf` 中 `network={}` 區塊內會同時包含：
 ```ini
 network={
     ssid="TestAP"
     psk="12345678"
     freq_list=5180 5200 5220 5240 5260 5280 ...
     disable_eht=1
+    disable_ht40=1
 }
 ```
 
 #### 還原機制：
 - 選擇 `[12] 全自動` 會移除 `network={}` 中的 `freq_list`。
 - 選擇 `[13] 全自動` 會移除 `network={}` 中的 `disable_eht`、`disable_he`、`disable_vht`。
+- 選擇 `[14] 全自動` 會移除 `network={}` 中的 `disable_ht40`。
 - 確保測試完畢後可一鍵恢復正常自動協商。
+
+> [!NOTE]
+> **HostAP 編譯旗標要求與工具防呆機制**：
+> - `wpa_supplicant` 中 `disable_ht40`、`disable_ht` 需編譯開啟 `CONFIG_HT_OVERRIDES=y`；`disable_he` 需 `CONFIG_HE_OVERRIDES=y`；`disable_vht` 需 `CONFIG_VHT_OVERRIDES=y`。
+> - 若板端二進制檔未開啟上述編譯旗標（如預設 defconfig），寫入該欄位會導致 `wpa_supplicant` 拋出 `unknown network field` 致命錯誤退出。
+> - **QWifiTestTool 防呆**：
+>   1. **TUI 選單標記**：即時分析板端 binary 符號表，未編譯時標註 `[未支援: 需 CONFIG_HT_OVERRIDES]` 並提示在 AP 端限制。
+>   2. **執行期自適應過濾**：Station 連線前若偵測到當前 binary 不支援該參數，自動生成安全暫存啟動檔，防止 daemon 崩潰。
+>   3. **秒級健康檢測**：守護進程啟動 1 秒內若崩潰，自動抓取日誌錯誤行（如 `unknown network field`）並即時中斷提示。
+
 
 ---
 

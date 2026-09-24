@@ -70,7 +70,7 @@ func extractPolicyParams(content string) map[string]string {
 				k := strings.TrimSpace(parts[0])
 				v := strings.TrimSpace(parts[1])
 				switch k {
-				case "freq_list", "disable_eht", "disable_he", "disable_vht", "scan_ssid":
+				case "freq_list", "disable_eht", "disable_he", "disable_vht", "disable_ht40", "scan_ssid":
 					params[k] = v
 				}
 			}

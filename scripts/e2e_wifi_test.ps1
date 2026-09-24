@@ -533,6 +533,15 @@ if ($runMatrix -and (-not $ApOnly)) {
     Test-StaPolicyConfig "TC-STA-P08" "STA Protocol Cap: Max WiFi 4" @("12", "4") @("disable_eht=1", "disable_he=1", "disable_vht=1")
     # Clear Protocol Cap: Set [12] -> [4] then [12] -> [1]
     Test-StaPolicyConfig "TC-STA-P09" "STA Clear Protocol Cap" @("12", "4", "12", "1") @() @("disable_eht=1", "disable_he=1", "disable_vht=1")
+
+    # --- Bandwidth Cap (Option 13) ---
+    Write-Host "`n[STA Bandwidth Cap Policies]" -ForegroundColor Cyan
+    $supplicantSupportsHt40 = Exec-Adb "grep -a -q 'disable_ht40' /usr/sbin/wpa_supplicant && echo 1 || echo 0"
+    $opt2Input = if ($supplicantSupportsHt40.Trim() -eq "1") { @("13", "2") } else { @("13", "2", "y") }
+    # Cap 20MHz: [13] -> [2] (-> y if unsupported prompt) -> disable_ht40=1
+    Test-StaPolicyConfig "TC-STA-P10" "STA Bandwidth Cap: Force 20MHz" $opt2Input @("disable_ht40=1")
+    # Clear Bandwidth Cap: Set [13] -> [2] (-> y) then [13] -> [1]
+    Test-StaPolicyConfig "TC-STA-P11" "STA Clear Bandwidth Cap" ($opt2Input + @("13", "1")) @() @("disable_ht40=1")
 }
 
 # ----------------- PHASE 3: Hardware RF Closed-Loop Verification -----------------

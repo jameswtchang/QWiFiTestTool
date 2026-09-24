@@ -273,11 +273,13 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 
 		idxBandLock := len(params) + 1
 		idxProtoLimit := len(params) + 2
+		idxBwLimit := len(params) + 3
 
 		fmt.Println(ui.Cyan + i18n.T("wpa_ed.section_limit") + ui.Reset)
 
 		bandLockStatus := i18n.T("wpa_ed.status_auto")
 		protoLimitStatus := i18n.T("wpa_ed.status_auto")
+		bwLimitStatus := i18n.T("wpa_ed.status_auto")
 
 		if len(config.Networks) > 0 {
 			net := config.Networks[0]
@@ -287,10 +289,14 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 			if net.Params["disable_eht"] != "" || net.Params["disable_he"] != "" || net.Params["disable_vht"] != "" {
 				protoLimitStatus = i18n.T("wpa_ed.status_limited")
 			}
+			if net.Params["disable_ht40"] != "" {
+				bwLimitStatus = i18n.T("wpa_ed.status_bw_20m")
+			}
 		}
 
 		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"%s"+ui.Reset+")\n", idxBandLock, i18n.T("wpa_ed.band_lock"), bandLockStatus)
 		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"%s"+ui.Reset+")\n", idxProtoLimit, i18n.T("wpa_ed.proto_limit"), protoLimitStatus)
+		fmt.Printf(ui.Cyan+ui.Bold+"[%d]"+ui.Reset+" %-20s ("+ui.Yellow+"%s"+ui.Reset+")\n", idxBwLimit, i18n.T("wpa_ed.bw_limit"), bwLimitStatus)
 
 		fmt.Println(ui.Cyan + ui.Bold + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.done_edit"))
 		fmt.Println(ui.Yellow + ui.Bold + "================================" + ui.Reset)
@@ -306,7 +312,7 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 		var idx int
 		fmt.Sscanf(input, "%d", &idx)
 
-		if idx < 1 || idx > idxProtoLimit {
+		if idx < 1 || idx > idxBwLimit {
 			fmt.Println(i18n.T("wpa_ed.invalid_sel"))
 			continue
 		}
@@ -316,6 +322,9 @@ func (e *WpaEditor) interactiveEdit(content string) (string, error) {
 			continue
 		} else if idx == idxProtoLimit {
 			e.handleProtoLimit(config)
+			continue
+		} else if idx == idxBwLimit {
+			e.handleBwLimit(config)
 			continue
 		}
 
@@ -481,6 +490,63 @@ func (e *WpaEditor) handleProtoLimit(config *WpaConfig) {
 	}
 }
 
+func (e *WpaEditor) getWpaSupplicantPath() string {
+	if e.module != nil && e.module.ID == "quectel_fgh200m" {
+		return sys.FindCommand("wpa_supplicant_s1g", "wpa_supplicant_s1g")
+	}
+	if e.platformInfo != nil && e.platformInfo.WpaSupplicantPath != "" {
+		return e.platformInfo.WpaSupplicantPath
+	}
+	return sys.FindCommand("wpa_supplicant", "/usr/sbin/wpa_supplicant")
+}
+
+func (e *WpaEditor) handleBwLimit(config *WpaConfig) {
+	binPath := e.getWpaSupplicantPath()
+	ht40Supported := sys.CheckWpaBinarySupport(binPath, "disable_ht40")
+
+	fmt.Println("\n" + ui.Yellow + ui.Bold + i18n.T("wpa_ed.bw_limit_title") + ui.Reset)
+	fmt.Println(ui.Cyan + "[1]" + ui.Reset + " " + i18n.T("wpa_ed.bw_limit.1"))
+	opt2Label := i18n.T("wpa_ed.bw_limit.2")
+	if !ht40Supported {
+		opt2Label += " " + ui.Red + i18n.T("wpa_ed.bw_limit_unsupported_tag") + ui.Reset
+	}
+	fmt.Println(ui.Cyan + "[2]" + ui.Reset + " " + opt2Label)
+	fmt.Println(ui.Cyan + "[0]" + ui.Reset + " " + i18n.T("wpa_ed.bw_limit.0"))
+	fmt.Print(ui.Yellow + i18n.T("wpa_ed.bw_limit_select") + ui.Reset)
+
+	input, _ := e.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	if input == "0" || input == "" {
+		return
+	}
+
+	net := e.getFirstNetwork(config)
+
+	// 先清除舊有設定
+	delete(net.Params, "disable_ht40")
+
+	if input == "1" {
+		fmt.Println(i18n.T("wpa_ed.bw_limit_cleared"))
+	} else if input == "2" {
+		if !ht40Supported {
+			fmt.Println(ui.Yellow + "[WARN] " + i18n.Tf("wpa_ed.bw_limit_unsupported_warn", binPath) + ui.Reset)
+			fmt.Println(ui.Yellow + "[WARN] " + i18n.T("wpa_ed.bw_limit_unsupported_hint") + ui.Reset)
+			fmt.Print(ui.Red + i18n.T("wpa_ed.bw_limit_force_ask") + " [y/N]: " + ui.Reset)
+			confirm, _ := e.reader.ReadString('\n')
+			confirm = strings.TrimSpace(confirm)
+			if strings.ToLower(confirm) != "y" {
+				fmt.Println(i18n.T("wpa_ed.bw_limit_cancelled"))
+				return
+			}
+		}
+		net.Params["disable_ht40"] = "1"
+		fmt.Println(i18n.T("wpa_ed.bw_limit_20m"))
+	} else {
+		fmt.Println(i18n.T("wpa_ed.invalid_sel"))
+	}
+}
+
 // displayConfigMap shows current config key-value pairs in order
 func (e *WpaEditor) displayConfigMap(config *WpaConfig) {
 	if len(config.GlobalParams) == 0 && len(config.Networks) == 0 {
@@ -507,6 +573,8 @@ func (e *WpaEditor) displayConfigMap(config *WpaConfig) {
 	}
 
 	// Show network params
+	binPath := e.getWpaSupplicantPath()
+	var unsupportedFound []string
 	for i, net := range config.Networks {
 		ssid := net.Params["ssid"]
 		if ssid == "" {
@@ -515,9 +583,19 @@ func (e *WpaEditor) displayConfigMap(config *WpaConfig) {
 		fmt.Printf("\n  [Network %d: %s]\n", i+1, ssid)
 		for key, val := range net.Params {
 			if key != "ssid" {
-				fmt.Printf("    %s=%s\n", key, val)
+				tag := ""
+				if strings.HasPrefix(key, "disable_") {
+					if !sys.CheckWpaBinarySupport(binPath, key) {
+						tag = " " + ui.Red + i18n.T("wpa_ed.unsupported_tag") + ui.Reset
+						unsupportedFound = append(unsupportedFound, fmt.Sprintf("%s=%s", key, val))
+					}
+				}
+				fmt.Printf("    %s=%s%s\n", key, val, tag)
 			}
 		}
+	}
+	if len(unsupportedFound) > 0 {
+		fmt.Println("\n" + ui.Yellow + i18n.Tf("wpa_ed.unsupported_param_warn", strings.Join(unsupportedFound, ", ")) + ui.Reset)
 	}
 }
 

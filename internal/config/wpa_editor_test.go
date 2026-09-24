@@ -149,3 +149,31 @@ network={
 	}
 }
 
+func TestWpaEditor_BwLimit(t *testing.T) {
+	input := `ctrl_interface=/var/run/wpa_supplicant
+network={
+	ssid="TestAP"
+	psk="12345678"
+}
+`
+	cfg := parseConfig(input)
+	cfg.Networks[0].Params["disable_ht40"] = "1"
+
+	output := rebuildConfig(input, cfg)
+	if !strings.Contains(output, "disable_ht40=1") {
+		t.Fatalf("Expected disable_ht40=1 in output:\n%s", output)
+	}
+
+	reparsed := parseConfig(output)
+	if reparsed.Networks[0].Params["disable_ht40"] != "1" {
+		t.Fatalf("Expected reparsed disable_ht40=1, got: %s", reparsed.Networks[0].Params["disable_ht40"])
+	}
+
+	// Delete and rebuild
+	delete(reparsed.Networks[0].Params, "disable_ht40")
+	clearedOutput := rebuildConfig(output, reparsed)
+	if strings.Contains(clearedOutput, "disable_ht40") {
+		t.Fatalf("Expected disable_ht40 to be deleted from output:\n%s", clearedOutput)
+	}
+}
+

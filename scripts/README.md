@@ -92,6 +92,8 @@ flowchart TD
 | | TC-STA-P07 | STA Protocol Cap: Max WiFi 5 | `disable_eht=1`, `disable_he=1` | - | *(靜態協定限制 IE 斷言)* |
 | | TC-STA-P08 | STA Protocol Cap: Max WiFi 4 | `disable_eht=1`, `disable_he=1`, `disable_vht=1` | - | *(靜態協定限制 IE 斷言)* |
 | | TC-STA-P09 | STA Clear Protocol Cap | *(清空協定限制)* | `disable_eht=1`, `disable_he=1`, `disable_vht=1` | *(靜態協定限制 IE 斷言)* |
+| **頻寬上限** | TC-STA-P10 | STA Bandwidth Cap: Force 20MHz | `disable_ht40=1` | - | *(強制 20MHz 測試，抑制 HT40 及寬頻寬)* |
+| | TC-STA-P11 | STA Clear Bandwidth Cap | *(清空頻寬限制)* | `disable_ht40=1` | *(靜態頻寬限制斷言)* |
 
 ---
 

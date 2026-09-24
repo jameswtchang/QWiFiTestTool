@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"qwifitesttool/internal/config"
 	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/logger"
@@ -251,10 +252,17 @@ func (c *Connector) startDaemon() error {
 		return fmt.Errorf("configPath is empty")
 	}
 
+	// Pre-flight check: detect unsupported override parameters and build compatible startup config if needed
+	runConfigPath := c.configPath
+	if sanitizedPath, stripped, err := c.sanitizeConfigForDaemon(c.configPath); err == nil && len(stripped) > 0 {
+		fmt.Printf(ui.Yellow+i18n.Tf("conn.unsupported_param_compat", strings.Join(stripped, ", "))+ui.Reset+"\n")
+		runConfigPath = sanitizedPath
+	}
+
 	// Log config file content before starting
 	if c.log != nil {
-		if data, err := os.ReadFile(c.configPath); err == nil {
-			c.log.LogConfig("wpa_supplicant", c.configPath, string(data))
+		if data, err := os.ReadFile(runConfigPath); err == nil {
+			c.log.LogConfig("wpa_supplicant", runConfigPath, string(data))
 		}
 	}
 
@@ -264,7 +272,7 @@ func (c *Connector) startDaemon() error {
 	args := []string{
 		"-i", iface,
 		"-D", driver,
-		"-c", c.configPath,
+		"-c", runConfigPath,
 	}
 
 	// Add debug flag for s1g supplicant
@@ -309,8 +317,38 @@ func (c *Connector) startDaemon() error {
 		return fmt.Errorf("failed to start wpa_supplicant: %w", err)
 	}
 
+	// Use a channel to track if process exits prematurely
+	exitChan := make(chan error, 1)
+	go func() {
+		exitChan <- cmd.Wait()
+	}()
+
 	// Give daemon a brief moment to initialize control interface
-	time.Sleep(1 * time.Second)
+	timer := time.NewTimer(1 * time.Second)
+	select {
+	case <-exitChan:
+		// Process exited early!
+		var errDetails string
+		if daemonLogPath != "" {
+			if logData, readErr := os.ReadFile(daemonLogPath); readErr == nil {
+				for _, line := range strings.Split(string(logData), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.Contains(line, "unknown network field") || strings.Contains(line, "unknown global field") || strings.Contains(line, "failed to parse") || strings.Contains(line, "Failed to read or parse") || strings.Contains(line, "Line ") {
+						errDetails += "  " + line + "\n"
+					}
+				}
+			}
+		}
+		if tw != nil {
+			tw.Close()
+		}
+		if errDetails == "" {
+			errDetails = "  process exited unexpectedly\n"
+		}
+		return fmt.Errorf(i18n.Tf("conn.daemon_early_exit", errDetails))
+	case <-timer.C:
+		// Still running after 1 second, consider it healthy
+	}
 
 	if c.log != nil {
 		c.log.LogCmd(cmdStr, []byte("Started in background child process"), err)
@@ -322,6 +360,67 @@ func (c *Connector) startDaemon() error {
 		fmt.Println(i18n.Tf("conn.wpa_log", daemonLogPath))
 	}
 	return nil
+}
+
+// sanitizeConfigForDaemon filters out unsupported override parameters from config for runtime execution
+func (c *Connector) sanitizeConfigForDaemon(configPath string) (string, []string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return configPath, nil, err
+	}
+	content := string(data)
+	paramsToCheck := []string{"disable_ht40", "disable_ht", "disable_vht", "disable_he", "disable_eht"}
+
+	lines := strings.Split(content, "\n")
+	var unsupported []string
+	unsupportedSet := make(map[string]bool)
+
+	// First pass: scan for configured parameters and check binary support
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=", 2)
+		if len(parts) == 2 {
+			k := strings.TrimSpace(parts[0])
+			for _, p := range paramsToCheck {
+				if k == p && !unsupportedSet[p] {
+					if !sys.CheckWpaBinarySupport(c.wpaSupplicant, p) {
+						unsupported = append(unsupported, p)
+						unsupportedSet[p] = true
+					}
+				}
+			}
+		}
+	}
+
+	if len(unsupported) == 0 {
+		return configPath, nil, nil
+	}
+
+	var newLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		shouldDrop := false
+		if !strings.HasPrefix(trimmed, "#") {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				if unsupportedSet[k] {
+					shouldDrop = true
+				}
+			}
+		}
+		if !shouldDrop {
+			newLines = append(newLines, line)
+		}
+	}
+	compatPath := filepath.Join(os.TempDir(), "wpa_supplicant_compat.conf")
+	if err := os.WriteFile(compatPath, []byte(strings.Join(newLines, "\n")), 0600); err != nil {
+		return configPath, nil, err
+	}
+	return compatPath, unsupported, nil
 }
 
 // startDaemonForScan starts wpa_supplicant with minimal config for scanning only
@@ -384,8 +483,24 @@ update_config=1
 		return fmt.Errorf(i18n.T("conn.scan_mode_fail"), err)
 	}
 
+	// Use a channel to track if process exits prematurely
+	exitChan := make(chan error, 1)
+	go func() {
+		exitChan <- cmd.Wait()
+	}()
+
 	// Wait briefly for init
-	time.Sleep(1 * time.Second)
+	timer := time.NewTimer(1 * time.Second)
+	select {
+	case <-exitChan:
+		// Process exited early!
+		if tw != nil {
+			tw.Close()
+		}
+		return fmt.Errorf(i18n.T("conn.scan_mode_fail"), fmt.Errorf("process exited unexpectedly"))
+	case <-timer.C:
+		// Still running
+	}
 
 	if c.log != nil {
 		c.log.LogCmd(cmdStr, []byte("Started in background child process"), err)
