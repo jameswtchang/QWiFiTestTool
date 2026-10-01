@@ -1,6 +1,8 @@
 package wifi
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -51,7 +53,7 @@ func TestFormatChannelInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatChannelInfo(tt.iwChannel, tt.freqStr)
+			result := formatChannelInfo(tt.iwChannel, tt.freqStr, false)
 			if result != tt.expected {
 				t.Errorf("formatChannelInfo(%q, %q) = %q, want %q", tt.iwChannel, tt.freqStr, result, tt.expected)
 			}
@@ -147,3 +149,159 @@ func TestFormatTxPower(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigHasNetwork(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Empty or global only
+	f1 := filepath.Join(tmpDir, "wpa1.conf")
+	os.WriteFile(f1, []byte("ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n"), 0644)
+	c1 := &Connector{configPath: f1}
+	if c1.configHasNetwork() {
+		t.Errorf("Expected false for config without network blocks")
+	}
+
+	// 2. Only DummyAP_For_Test
+	f2 := filepath.Join(tmpDir, "wpa2.conf")
+	os.WriteFile(f2, []byte("network={\n\tssid=\"DummyAP_For_Test\"\n\tkey_mgmt=NONE\n}\n"), 0644)
+	c2 := &Connector{configPath: f2}
+	if c2.configHasNetwork() {
+		t.Errorf("Expected false for config with only DummyAP_For_Test")
+	}
+
+	// 3. Real network
+	f3 := filepath.Join(tmpDir, "wpa3.conf")
+	os.WriteFile(f3, []byte("network={\n\tssid=\"MyHomeAP\"\n\tpsk=\"password\"\n}\n"), 0644)
+	c3 := &Connector{configPath: f3}
+	if !c3.configHasNetwork() {
+		t.Errorf("Expected true for config with real network")
+	}
+
+	// 4. Coexistence of DummyAP and Real network
+	f4 := filepath.Join(tmpDir, "wpa4.conf")
+	os.WriteFile(f4, []byte("network={\n\tssid=\"DummyAP_For_Test\"\n\tkey_mgmt=NONE\n}\nnetwork={\n\tssid=\"MyHomeAP\"\n\tpsk=\"password\"\n}\n"), 0644)
+	c4 := &Connector{configPath: f4}
+	if !c4.configHasNetwork() {
+		t.Errorf("Expected true when real network coexists with DummyAP")
+	}
+
+	// 5. Spaced format: ssid = "SpacedAP"
+	f5 := filepath.Join(tmpDir, "wpa5.conf")
+	os.WriteFile(f5, []byte("network={\n\tssid = \"SpacedAP\"\n\tpsk=\"password\"\n}\n"), 0644)
+	c5 := &Connector{configPath: f5}
+	if !c5.configHasNetwork() {
+		t.Errorf("Expected true for config with spaced ssid")
+	}
+
+	// 6. Commented out network: # ssid="CommentedAP"
+	f6 := filepath.Join(tmpDir, "wpa6.conf")
+	os.WriteFile(f6, []byte("network={\n\t# ssid=\"CommentedAP\"\n\tkey_mgmt=NONE\n}\n"), 0644)
+	c6 := &Connector{configPath: f6}
+	if c6.configHasNetwork() {
+		t.Errorf("Expected false for config with only commented ssid")
+	}
+
+	// 7. Empty ssid: ssid=""
+	f7 := filepath.Join(tmpDir, "wpa7.conf")
+	os.WriteFile(f7, []byte("network={\n\tssid=\"\"\n\tkey_mgmt=NONE\n}\n"), 0644)
+	c7 := &Connector{configPath: f7}
+	if c7.configHasNetwork() {
+		t.Errorf("Expected false for config with empty ssid")
+	}
+}
+
+func TestParseMorseChannelOutput(t *testing.T) {
+	sample := `Full Channel Information
+	Operating Frequency: 924000 kHz
+	Operating BW: 8 MHz
+	Primary BW: 2 MHz
+	Primary Channel Index: 3`
+
+	info := parseMorseChannelOutput(sample)
+	if info == nil {
+		t.Fatalf("Expected non-nil MorseChannelInfo")
+	}
+	if info.OperatingFreqKHz != 924000 {
+		t.Errorf("Expected OperatingFreqKHz 924000, got %d", info.OperatingFreqKHz)
+	}
+	if info.OperatingBWMHz != 8 {
+		t.Errorf("Expected OperatingBWMHz 8, got %d", info.OperatingBWMHz)
+	}
+	if info.PrimaryBWMHz != 2 {
+		t.Errorf("Expected PrimaryBWMHz 2, got %d", info.PrimaryBWMHz)
+	}
+	if info.PrimaryIndex != 3 {
+		t.Errorf("Expected PrimaryIndex 3, got %d", info.PrimaryIndex)
+	}
+}
+
+func TestFormatMorseChannelDisplay(t *testing.T) {
+	info := &MorseChannelInfo{
+		OperatingFreqKHz: 924000,
+		OperatingBWMHz:   8,
+		PrimaryBWMHz:     2,
+		PrimaryIndex:     3,
+	}
+
+	iwChannel := "channel 161 (5805 MHz), width: 160 MHz, center1: 5815 MHz"
+	got := formatMorseChannelDisplay(info, iwChannel)
+	expected := "Sub-GHz (HaLow) / 924 MHz [8 MHz, Primary: 2 MHz] (Mapped: CH 161)"
+	if got != expected {
+		t.Errorf("formatMorseChannelDisplay() = %q, want %q", got, expected)
+	}
+
+	// Without primary BW difference
+	info2 := &MorseChannelInfo{
+		OperatingFreqKHz: 920000,
+		OperatingBWMHz:   2,
+		PrimaryBWMHz:     2,
+	}
+	got2 := formatMorseChannelDisplay(info2, "channel 36 (5180 MHz)")
+	expected2 := "Sub-GHz (HaLow) / 920 MHz [2 MHz] (Mapped: CH 36)"
+	if got2 != expected2 {
+		t.Errorf("formatMorseChannelDisplay() = %q, want %q", got2, expected2)
+	}
+}
+
+func TestParseMorseStatsOutput(t *testing.T) {
+	sample := `Noise (dBm)                                     : -89
+Medium energy (dBm)                             : -86
+SNR estimated (dB)                              : 36
+MCS max estimated                               : 9
+MCS min estimated                               : 9
+PHY rate max (kbps)                             : 39000
+PHY rate min (kbps)                             : 39000`
+
+	info := parseMorseStatsOutput(sample)
+	if info == nil {
+		t.Fatalf("Expected non-nil MorseStatsInfo")
+	}
+	if info.PhyRateMaxKbps != 39000 {
+		t.Errorf("Expected PhyRateMaxKbps 39000, got %d", info.PhyRateMaxKbps)
+	}
+	if info.PhyRateMinKbps != 39000 {
+		t.Errorf("Expected PhyRateMinKbps 39000, got %d", info.PhyRateMinKbps)
+	}
+}
+
+func TestFormatMorseBitrateDisplay(t *testing.T) {
+	info := &MorseStatsInfo{
+		PhyRateMaxKbps: 39000,
+		PhyRateMinKbps: 39000,
+	}
+
+	emulated := "650.0 MBit/s (VHT-MCS 7)"
+	got := formatMorseBitrateDisplay(info, emulated)
+	expected := "39.0 Mbps (S1G PHY) [VHT Emulated: 650.0 MBit/s (VHT-MCS 7)]"
+	if got != expected {
+		t.Errorf("formatMorseBitrateDisplay() = %q, want %q", got, expected)
+	}
+
+	// Without emulated
+	gotNoEmul := formatMorseBitrateDisplay(info, "")
+	expectedNoEmul := "39.0 Mbps (S1G PHY Rate)"
+	if gotNoEmul != expectedNoEmul {
+		t.Errorf("formatMorseBitrateDisplay() = %q, want %q", gotNoEmul, expectedNoEmul)
+	}
+}
+

@@ -191,6 +191,11 @@ func (h *Hotspot) startServices() error {
 	// Save dmesg before starting
 	saveDmesg(dmesgLog, "before")
 
+	// Morse Micro HaLow specific check: ensure kernel channelization_scheme matches AP config
+	if h.module != nil && h.module.ID == "quectel_fgh200m" {
+		h.ensureMorseChannelizationScheme()
+	}
+
 	// Setup interface IP before starting dnsmasq
 	if err := h.setupInterfaceIP(); err != nil {
 		fmt.Println(i18n.Tf("hotspot.ip_fail", err))
@@ -360,6 +365,56 @@ func (h *Hotspot) setRegulatoryDomain() {
 
 	// Give the kernel time to apply the new regulatory domain
 	time.Sleep(500 * time.Millisecond)
+}
+
+// ensureMorseChannelizationScheme verifies and updates dot11ah channelization_scheme for Morse HaLow AP
+func (h *Hotspot) ensureMorseChannelizationScheme() {
+	country := "AU"
+	if h.hostapdConfig != "" {
+		if data, err := os.ReadFile(h.hostapdConfig); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "country_code=") {
+					country = strings.TrimPrefix(line, "country_code=")
+					break
+				}
+			}
+		}
+	}
+
+	targetScheme := "1" // Scheme 1 for AU IEEE802.11-2020 (Op Class 70)
+	if country == "US" {
+		targetScheme = "3" // Scheme 3 for US (IEEE802.11-REVmf)
+	}
+
+	curSchemeBytes, err := os.ReadFile("/sys/module/dot11ah/parameters/channelization_scheme")
+	curScheme := ""
+	if err == nil {
+		curScheme = strings.TrimSpace(string(curSchemeBytes))
+	}
+
+	morseLoaded := false
+	if _, err := os.Stat("/sys/module/morse"); err == nil {
+		morseLoaded = true
+	}
+
+	if !morseLoaded || curScheme != targetScheme {
+		fmt.Printf("[INFO] Morse HaLow AP 需要 scheme=%s (%s), 目前為 scheme=%s (morse: %v), 正在重新載入驅動...\n",
+			targetScheme, country, curScheme, morseLoaded)
+
+		if morseLoaded {
+			_ = UnloadDriver(h.module)
+		}
+
+		h.module.Kernel.PreloadInsmodArgs = fmt.Sprintf("channelization_scheme=%s", targetScheme)
+		h.module.Kernel.InsmodArgs = fmt.Sprintf("country=%s bcf=bcf_default.bin", country)
+
+		if err := LoadDriver(h.module); err != nil {
+			fmt.Printf("[WARN] 自動重新載入 Morse 驅動失敗: %v\n", err)
+		} else {
+			fmt.Println("[INFO] Morse 驅動已就緒並套用正確 Channelization Scheme")
+		}
+	}
 }
 
 // startHostapd starts the hostapd daemon

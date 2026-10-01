@@ -31,6 +31,8 @@ func getAllPresets() []BandPreset {
 		{"WiFi 7 (802.11be) - 320 MHz", "6G", "be", 320},
 		{"WiFi 7 (802.11be) - 160 MHz", "6G", "be", 160},
 		{"WiFi 7 (802.11be) - 80 MHz", "6G", "be", 80},
+		{"WiFi 7 (802.11be) - 40 MHz", "6G", "be", 40},
+		{"WiFi 7 (802.11be) - 20 MHz", "6G", "be", 20},
 		{"WiFi 6 (802.11ax) - 160 MHz", "6G", "ax", 160},
 		{"WiFi 6 (802.11ax) - 80 MHz", "6G", "ax", 80},
 		{"WiFi 6 (802.11ax) - 40 MHz", "6G", "ax", 40},
@@ -39,12 +41,16 @@ func getAllPresets() []BandPreset {
 		// 5 GHz presets
 		{"WiFi 7 (802.11be) - 160 MHz", "5G", "be", 160},
 		{"WiFi 7 (802.11be) - 80 MHz", "5G", "be", 80},
+		{"WiFi 7 (802.11be) - 40 MHz", "5G", "be", 40},
+		{"WiFi 7 (802.11be) - 20 MHz", "5G", "be", 20},
 		{"WiFi 6 (802.11ax) - 160 MHz", "5G", "ax", 160},
 		{"WiFi 6 (802.11ax) - 80 MHz", "5G", "ax", 80},
 		{"WiFi 6 (802.11ax) - 40 MHz", "5G", "ax", 40},
 		{"WiFi 6 (802.11ax) - 20 MHz", "5G", "ax", 20},
+		{"WiFi 5 (802.11ac) - 160 MHz", "5G", "ac", 160},
 		{"WiFi 5 (802.11ac) - 80 MHz", "5G", "ac", 80},
 		{"WiFi 5 (802.11ac) - 40 MHz", "5G", "ac", 40},
+		{"WiFi 5 (802.11ac) - 20 MHz", "5G", "ac", 20},
 		{"WiFi 4 (802.11n)  - 40 MHz", "5G", "n", 40},
 		{"WiFi 4 (802.11n)  - 20 MHz", "5G", "n", 20},
 
@@ -212,23 +218,23 @@ func (e *APConfigEditor) getRecommendedChannel(band string, bw int) int {
 		}
 	}
 
-	// 6G: Prefer center channel that contains primary PSC channel 37
+	// 6G: Prefer channel that falls into the block containing PSC channel 37
 	if band == "6G" {
 		for _, ch := range channels {
 			if bw == 20 && ch == 37 {
 				return 37
 			}
-			if bw == 40 && ch == 35 { // contains 37
-				return 35
+			if bw == 40 && (ch == 33 || ch == 35) { // 33 is primary, 35 is center
+				return ch
 			}
-			if bw == 80 && ch == 39 { // contains 37
-				return 39
+			if bw == 80 && (ch == 33 || ch == 39) { // 33 is primary, 39 is center
+				return ch
 			}
-			if bw == 160 && ch == 47 { // contains 37
-				return 47
+			if bw == 160 && (ch == 33 || ch == 47) { // 33 is primary, 47 is center
+				return ch
 			}
-			if bw == 320 && ch == 31 { // contains 37
-				return 31
+			if bw == 320 && (ch == 1 || ch == 33 || ch == 31) { // 1/33 are primary, 31 is center
+				return ch
 			}
 		}
 		return channels[0]
@@ -304,10 +310,11 @@ func (e *APConfigEditor) runQuickPresetWizard() bool {
 		var chInfo string
 
 		if p.Band == "6G" {
+			centerCh := calcPresetCenterChannel("6G", p.Bandwidth, recCh)
 			if p.Bandwidth > 20 {
-				primaryCh := CalcPrimaryChannel6G(recCh, p.Bandwidth)
+				primaryCh := CalcPrimaryChannel6G(centerCh, p.Bandwidth)
 				chInfo = fmt.Sprintf("[%s: %d, Primary: %d (PSC)]",
-					i18n.T("qp.center_channel"), recCh, primaryCh)
+					i18n.T("qp.center_channel"), centerCh, primaryCh)
 			} else {
 				chInfo = fmt.Sprintf("[%s: %d (PSC)]", i18n.T("qp.rec_channel"), recCh)
 			}
@@ -357,9 +364,10 @@ func (e *APConfigEditor) runQuickPresetWizard() bool {
 	e.refreshChannels()
 
 	if chosen.Band == "6G" && chosen.Bandwidth > 20 {
-		primaryCh := CalcPrimaryChannel6G(recChannel, chosen.Bandwidth)
+		centerCh := e.calcHE6GCenterChannel()
+		primaryCh := CalcPrimaryChannel6G(centerCh, chosen.Bandwidth)
 		fmt.Printf("\n"+ui.Green+ui.Bold+"✅ "+i18n.Tf("qp.applied_success",
-			chosen.Band, chosen.Mode, chosen.Bandwidth, recChannel)+
+			chosen.Band, chosen.Mode, chosen.Bandwidth, centerCh)+
 			fmt.Sprintf(" (Primary: %d)"+ui.Reset+"\n\n", primaryCh))
 	} else {
 		fmt.Printf("\n"+ui.Green+ui.Bold+"✅ "+i18n.Tf("qp.applied_success",

@@ -473,7 +473,8 @@
         <Kernel>
             <KoName>morse.ko</KoName>
             <PreloadKo>dot11ah.ko</PreloadKo>
-            <InsmodArgs>country=US bcf=bcf_default.bin</InsmodArgs>
+            <PreloadInsmodArgs>channelization_scheme=1</PreloadInsmodArgs>
+            <InsmodArgs>country=AU bcf=bcf_default.bin</InsmodArgs>
             <Interface>wlan0</Interface>
             <DriverBackend>nl80211</DriverBackend>
         </Kernel>

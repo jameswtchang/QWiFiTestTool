@@ -154,3 +154,41 @@
 * **解決方案**：
   1. 在 `startServices()` 啟動前強制清理 `wpa_supplicant` 等衝突 daemon 與舊介面狀態。
   2. 輪詢 6 秒後加入 `apReady` 嚴格檢驗，若未成功轉為 `type AP` 即刻終止並報錯。
+
+---
+
+## 7. 最新更新 (2026-10-01) — V1.12 (Quectel FGH200M HaLow AP/STA 鏈路與 Channelization Scheme 閉環修復)
+
+### Morse Micro 前置驅動參數支援 (`PreloadInsmodArgs`)
+* **背景**：FGH200M 採用 `dot11ah.ko` 作為前置模組，主驅動為 `morse.ko`。
+* **根本衝突**：`dot11ah.ko` 擁有模組參數 `channelization_scheme`（專用於 AU 等地區的頻段方案劃分）。若載入時未帶參數，內核預設為 `3` (IEEE802.11-REVmf / US 方案)。然而 AP 設定檔要求 `country_code=AU` 與 `op_class=70`（要求 Scheme `1`），導致 `hostapd_s1g` 查詢驅動時直接崩潰：`Driver channelization scheme (3) does not include configured Op class (70)`。
+* **架構擴充**：
+  * 在 `internal/models/module.go` 的 `KernelConfig` 新增 `PreloadInsmodArgs` 欄位與 `GetPreloadArgsList()` 方法。
+  * `internal/wifi/driver_loader.go` 載入 `PreloadKo` 時，將對應的 insmod 參數（如 `channelization_scheme=1`）傳入 `findAndInsmod`。
+  * 在 `assets/default_modules.xml` 與 `internal/models/default_modules.xml` 中，將 FGH200M 的載入參數修正為 `PreloadInsmodArgs: channelization_scheme=1` 與 `InsmodArgs: country=AU bcf=bcf_default.bin`。
+
+### AP 模式啟動前驅動智能校準
+* **防呆機制** (`internal/wifi/hotspot.go`)：
+  * 啟動 AP 前加入 `ensureMorseChannelizationScheme()`。讀取 `/sys/module/dot11ah/parameters/channelization_scheme` 與設定檔中的國家碼。
+  * 若當前驅動與 AP 要求的 Scheme 不一致，工具自動卸載並以正確 scheme 重新載入，徹底免除使用者手動排查與重載驅動的負擔。
+
+### AP 配置生成器 `op_class` 輸出保留
+* **修復** (`internal/config/ap_config_editor.go`)：
+  * 先前版本將 `op_class` 列為全局過濾，導致 Sub-GHz 的 `op_class=70` 被吃掉而引起 `invalid op_class=0` 錯誤。
+  * 現在僅針對 6GHz 動態生成時過濾，Sub-GHz 及其他頻段完整保留 XML 中的 `FixedParams`。
+
+### Sub-GHz `morse_cli` 硬體頻率與速率原生解析
+* **整合** (`internal/wifi/connector_helpers.go`)：
+  * 解決 nl80211/iw 將 802.11ah 映射到 5GHz 假象頻率（如 5805 MHz）的問題。
+  * 接入 `morse_cli -i wlan0 channel` 與 `morse_cli -i wlan0 stats`，真實解析 920.5 MHz 頻率、8MHz 頻寬與 MCS/PHY 速率。
+
+---
+
+## 8. 核心組件：Channel Lookup 國家頻段檢索庫全面測試與驗證
+
+### 測試覆蓋範圍 (`internal/models/channel_lookup_test.go`)
+* **跨國多頻寬矩陣驗證**：針對 US、CN、TW、JP 等主流國家，在 2.4G/5G/6G 各頻寬（20M, 40M, 80M, 160M, 320M）進行可用信道查詢與合法性檢驗。
+* **AP 類型退避測試**：驗證 `室内型AP`、`室外型AP` 與 `所有类型AP` 的法規信道差異（如 JP 室外限制 W56、CN 室外僅 149、TW 6G 320M 僅中心頻道 31）。
+* **格式解析邊界測試**：涵蓋連號範圍（`1-13`）、離散列表（`36, 40, 44`）、混合字串、空值及連字號（`-`）容錯處理。
+* **執行結果**：全數通過單元測試 (`go test -v ./internal/models`)。
+

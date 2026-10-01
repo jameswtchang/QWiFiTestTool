@@ -35,3 +35,52 @@
 ## 5. 背景程序殘留清理
 * **修改** (`internal/wifi/hotspot.go`, `internal/wifi/connector_disconnect.go`)：
   * 當結束 AP (`Stop()`) 或 Station 斷線時，除了標準的 `wpa_supplicant` 和 `hostapd` 外，加入針對 `_s1g` 版本的程序清理動作 (`pkill -9 wpa_supplicant_s1g`, `killall -9 hostapd_s1g`)，確保在多模式頻繁切換時系統記憶體不會洩漏，且不會有多重服務搶佔 `wlan0` 的問題。
+
+## 6. 驅動前置模組參數與 Channelization Scheme 致命衝突修復
+* **問題**：
+  * 啟動 AP 模式（選單 `[5]`）時，`hostapd_s1g` 崩潰退出，日誌報錯：
+    ```text
+    morse: channelization scheme 3 used on ifname wlan0
+    Driver channelization scheme (3) does not include configured Op class (70)
+    Interface initialization failed
+    ```
+  * **衝突根源**：
+    1. 前置驅動 `dot11ah.ko` 擁有模組參數 `channelization_scheme`（專用於 AU 法規頻段方案切換）。未指定時內核預設為 `3` (IEEE802.11-REVmf / US 方案)。
+    2. 主驅動 `morse.ko` 原載入參數硬編碼為 `country=US bcf=bcf_default.bin`。
+    3. 但 AP 配置檔 (`default_modules.xml`) 卻指定為 `country_code=AU` 與 `op_class=70`（AU 8MHz 規範要求 Scheme `1`，即 IEEE802.11-2020）。
+    4. `hostapd_s1g` 啟動時透過 Netlink 調用 `morse_cli get channelization` 查詢驅動，發現驅動 Scheme (3) 與設定檔要求的 Scheme (1) 嚴重衝突，直接中止初始化。
+* **修改架構**：
+  1. **模型擴充** (`internal/models/module.go`)：
+     在 `KernelConfig` 中增加 `PreloadInsmodArgs` 欄位與 `GetPreloadArgsList()` 方法，支援為前置驅動模組傳遞自訂 insmod 參數。
+  2. **驅動載入器** (`internal/wifi/driver_loader.go`)：
+     在載入 `PreloadKo`（如 `dot11ah.ko`）時，將對應的 `PreloadInsmodArgs`（`channelization_scheme=1`）注入 `findAndInsmod`。
+  3. **模組配置更新** (`assets/default_modules.xml` 與 `internal/models/default_modules.xml`)：
+     ```xml
+     <Kernel>
+         <KoName>morse.ko</KoName>
+         <PreloadKo>dot11ah.ko</PreloadKo>
+         <PreloadInsmodArgs>channelization_scheme=1</PreloadInsmodArgs>
+         <InsmodArgs>country=AU bcf=bcf_default.bin</InsmodArgs>
+         <Interface>wlan0</Interface>
+         <DriverBackend>nl80211</DriverBackend>
+     </Kernel>
+     ```
+  4. **AP 啟動自動校驗防呆** (`internal/wifi/hotspot.go`)：
+     在 `Hotspot.startServices()` 啟動前加入 `ensureMorseChannelizationScheme()`。讀取 `/sys/module/dot11ah/parameters/channelization_scheme`，若當前驅動與 AP 設定檔的國家碼不符（AU 需 scheme 1，US 需 scheme 3），工具自動卸載並以正確 scheme 重新載入，免除使用者手動排查與重載驅動的負擔。
+
+## 7. AP 配置生成器 `op_class` 輸出保留
+* **問題**：
+  * 在先前的版本中，`ap_config_editor.go` 的 `skipKeys` 與 `managedKeys` 無條件過濾掉了 `"op_class": true`，導致 `default_modules.xml` 中定義的 `<Param key="op_class">70</Param>` 被忽略，`hostapd.conf` 缺漏 `op_class`，造成啟動報錯：
+    ```text
+    morse_ap_configure_channelization: invalid op_class=0 for country AU
+    ```
+* **修改** (`internal/config/ap_config_editor.go`)：
+  * 將 `op_class` 的略過限制嚴格收斂至 6GHz（6GHz 由程式動態計算 131–137 輸出）。非 6GHz（包含 Sub-GHz HaLow）若定義於 `FixedParams`，完整保留輸出至 `/etc/hostapd.conf`。
+
+## 8. Sub-GHz `morse_cli` 真實頻率與硬體統計解析
+* **問題**：
+  * Linux 標準 nl80211 核心與 `iw` 不原生支援 Sub-GHz (900MHz) 頻率顯示，導致終端顯示虛擬映射頻率（如 5805 MHz / 5GHz 假象）或速率缺失。
+* **修改** (`internal/wifi/connector_helpers.go`)：
+  * 當偵測到模組為 `quectel_fgh200m` 時，改由調用 `/usr/sbin/morse_cli -i wlan0 channel` 與 `/usr/sbin/morse_cli -i wlan0 stats`。
+  * 精確擷取硬體真實中心頻率（如 `920500 kHz / 920.5 MHz`）、操作頻寬（`8MHz`）、主頻道索引，以及真實收發 MCS 與 PHY 速率，呈現最準確的連線狀態。
+

@@ -463,11 +463,11 @@ Cleanup-Environment
 $runMatrix = (-not $RfOnly) -and (-not $RfAll)
 $runRf = (-not $MatrixOnly)
 
-# ----------------- PHASE 1: AP Preset Matrix (All 23 Presets) -----------------
+# ----------------- PHASE 1: AP Preset Matrix (All 29 Presets) -----------------
 if ($runMatrix -and (-not $StaOnly)) {
     Write-Host ""
     Write-Host "==========================================================================" -ForegroundColor Magenta
-    Write-Host ">> Phase 1: AP Quick Preset Matrix Verification (23 Presets Full Coverage)" -ForegroundColor Magenta
+    Write-Host ">> Phase 1: AP Quick Preset Matrix Verification (29 Presets Full Coverage)" -ForegroundColor Magenta
     Write-Host "==========================================================================" -ForegroundColor Magenta
 
     # --- 6 GHz (Band 3) ---
@@ -475,32 +475,38 @@ if ($runMatrix -and (-not $StaOnly)) {
     Test-ApPresetConfig "TC-AP-M01" "6GHz WiFi 7 320M" 3 1 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=137")
     Test-ApPresetConfig "TC-AP-M02" "6GHz WiFi 7 160M" 3 2 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=134")
     Test-ApPresetConfig "TC-AP-M03" "6GHz WiFi 7 80M"  3 3 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=133")
-    Test-ApPresetConfig "TC-AP-M04" "6GHz WiFi 6 160M" 3 4 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=134")
-    Test-ApPresetConfig "TC-AP-M05" "6GHz WiFi 6 80M"  3 5 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=133")
-    Test-ApPresetConfig "TC-AP-M06" "6GHz WiFi 6 40M"  3 6 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=132")
-    Test-ApPresetConfig "TC-AP-M07" "6GHz WiFi 6 20M"  3 7 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=131")
+    Test-ApPresetConfig "TC-AP-M04" "6GHz WiFi 7 40M"  3 4 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=132")
+    Test-ApPresetConfig "TC-AP-M05" "6GHz WiFi 7 20M"  3 5 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=131")
+    Test-ApPresetConfig "TC-AP-M06" "6GHz WiFi 6 160M" 3 6 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=134")
+    Test-ApPresetConfig "TC-AP-M07" "6GHz WiFi 6 80M"  3 7 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=133")
+    Test-ApPresetConfig "TC-AP-M08" "6GHz WiFi 6 40M"  3 8 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=132")
+    Test-ApPresetConfig "TC-AP-M09" "6GHz WiFi 6 20M"  3 9 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=131")
 
     # --- 5 GHz (Band 2) ---
     Write-Host "`n[5 GHz Band Presets]" -ForegroundColor Cyan
-    Test-ApPresetConfig "TC-AP-M08" "5GHz WiFi 7 160M" 2 1  @("hw_mode=a", "channel=36", "ieee80211be=1", "vht_oper_centr_freq_seg0_idx=50")
-    Test-ApPresetConfig "TC-AP-M09" "5GHz WiFi 7 80M"  2 2  @("hw_mode=a", "channel=36", "ieee80211be=1", "vht_oper_centr_freq_seg0_idx=42")
-    Test-ApPresetConfig "TC-AP-M10" "5GHz WiFi 6 160M" 2 3  @("hw_mode=a", "channel=36", "ieee80211ax=1", "vht_oper_centr_freq_seg0_idx=50")
-    Test-ApPresetConfig "TC-AP-M11" "5GHz WiFi 6 80M"  2 4  @("hw_mode=a", "channel=36", "ieee80211ax=1", "vht_oper_centr_freq_seg0_idx=42")
-    Test-ApPresetConfig "TC-AP-M12" "5GHz WiFi 6 40M"  2 5  @("hw_mode=a", "channel=36", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M13" "5GHz WiFi 6 20M"  2 6  @("hw_mode=a", "channel=36", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M14" "5GHz WiFi 5 80M"  2 7  @("hw_mode=a", "channel=36", "ieee80211ac=1", "vht_oper_centr_freq_seg0_idx=42")
-    Test-ApPresetConfig "TC-AP-M15" "5GHz WiFi 5 40M"  2 8  @("hw_mode=a", "channel=36", "ieee80211ac=1")
-    Test-ApPresetConfig "TC-AP-M16" "5GHz WiFi 4 40M"  2 9  @("hw_mode=a", "channel=36", "ieee80211n=1")
-    Test-ApPresetConfig "TC-AP-M17" "5GHz WiFi 4 20M"  2 10 @("hw_mode=a", "channel=36", "ieee80211n=1")
+    Test-ApPresetConfig "TC-AP-M10" "5GHz WiFi 7 160M" 2 1  @("hw_mode=a", "channel=36", "ieee80211be=1", "vht_oper_centr_freq_seg0_idx=50")
+    Test-ApPresetConfig "TC-AP-M11" "5GHz WiFi 7 80M"  2 2  @("hw_mode=a", "channel=36", "ieee80211be=1", "vht_oper_centr_freq_seg0_idx=42")
+    Test-ApPresetConfig "TC-AP-M12" "5GHz WiFi 7 40M"  2 3  @("hw_mode=a", "channel=36", "ieee80211be=1")
+    Test-ApPresetConfig "TC-AP-M13" "5GHz WiFi 7 20M"  2 4  @("hw_mode=a", "channel=36", "ieee80211be=1")
+    Test-ApPresetConfig "TC-AP-M14" "5GHz WiFi 6 160M" 2 5  @("hw_mode=a", "channel=36", "ieee80211ax=1", "vht_oper_centr_freq_seg0_idx=50")
+    Test-ApPresetConfig "TC-AP-M15" "5GHz WiFi 6 80M"  2 6  @("hw_mode=a", "channel=36", "ieee80211ax=1", "vht_oper_centr_freq_seg0_idx=42")
+    Test-ApPresetConfig "TC-AP-M16" "5GHz WiFi 6 40M"  2 7  @("hw_mode=a", "channel=36", "ieee80211ax=1")
+    Test-ApPresetConfig "TC-AP-M17" "5GHz WiFi 6 20M"  2 8  @("hw_mode=a", "channel=36", "ieee80211ax=1")
+    Test-ApPresetConfig "TC-AP-M18" "5GHz WiFi 5 160M" 2 9  @("hw_mode=a", "channel=36", "ieee80211ac=1", "vht_oper_centr_freq_seg0_idx=50")
+    Test-ApPresetConfig "TC-AP-M19" "5GHz WiFi 5 80M"  2 10 @("hw_mode=a", "channel=36", "ieee80211ac=1", "vht_oper_centr_freq_seg0_idx=42")
+    Test-ApPresetConfig "TC-AP-M20" "5GHz WiFi 5 40M"  2 11 @("hw_mode=a", "channel=36", "ieee80211ac=1")
+    Test-ApPresetConfig "TC-AP-M21" "5GHz WiFi 5 20M"  2 12 @("hw_mode=a", "channel=36", "ieee80211ac=1")
+    Test-ApPresetConfig "TC-AP-M22" "5GHz WiFi 4 40M"  2 13 @("hw_mode=a", "channel=36", "ieee80211n=1")
+    Test-ApPresetConfig "TC-AP-M23" "5GHz WiFi 4 20M"  2 14 @("hw_mode=a", "channel=36", "ieee80211n=1")
 
     # --- 2.4 GHz (Band 1) ---
     Write-Host "`n[2.4 GHz Band Presets]" -ForegroundColor Cyan
-    Test-ApPresetConfig "TC-AP-M18" "2.4GHz WiFi 7 40M" 1 1 @("hw_mode=g", "ieee80211be=1")
-    Test-ApPresetConfig "TC-AP-M19" "2.4GHz WiFi 7 20M" 1 2 @("hw_mode=g", "ieee80211be=1")
-    Test-ApPresetConfig "TC-AP-M20" "2.4GHz WiFi 6 40M" 1 3 @("hw_mode=g", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M21" "2.4GHz WiFi 6 20M" 1 4 @("hw_mode=g", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M22" "2.4GHz WiFi 4 40M" 1 5 @("hw_mode=g", "ieee80211n=1")
-    Test-ApPresetConfig "TC-AP-M23" "2.4GHz WiFi 4 20M" 1 6 @("hw_mode=g", "ieee80211n=1")
+    Test-ApPresetConfig "TC-AP-M24" "2.4GHz WiFi 7 40M" 1 1 @("hw_mode=g", "ieee80211be=1")
+    Test-ApPresetConfig "TC-AP-M25" "2.4GHz WiFi 7 20M" 1 2 @("hw_mode=g", "ieee80211be=1")
+    Test-ApPresetConfig "TC-AP-M26" "2.4GHz WiFi 6 40M" 1 3 @("hw_mode=g", "ieee80211ax=1")
+    Test-ApPresetConfig "TC-AP-M27" "2.4GHz WiFi 6 20M" 1 4 @("hw_mode=g", "ieee80211ax=1")
+    Test-ApPresetConfig "TC-AP-M28" "2.4GHz WiFi 4 40M" 1 5 @("hw_mode=g", "ieee80211n=1")
+    Test-ApPresetConfig "TC-AP-M29" "2.4GHz WiFi 4 20M" 1 6 @("hw_mode=g", "ieee80211n=1")
 }
 
 # ----------------- PHASE 2: STA Policy Matrix (8 Policies) -----------------
@@ -593,13 +599,13 @@ if ($runRf -and (-not $StaOnly)) {
         Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
 
         # TC-RF-02: 6GHz WiFi 6 160M TX
-        Run-ApRfTestCase -TcId "TC-RF-02" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 4 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-02" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
 
         # TC-RF-03: 5GHz WiFi 7 160M TX
         Run-ApRfTestCase -TcId "TC-RF-03" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
 
         # TC-RF-04: 5GHz WiFi 5 80M TX
-        Run-ApRfTestCase -TcId "TC-RF-04" -Name "5GHz WiFi 5 80M RF TX" -BandKey 2 -PresetKey 7 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-04" -Name "5GHz WiFi 5 80M RF TX" -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
 
         # TC-RF-05: 2.4GHz WiFi 7 20M TX
         Run-ApRfTestCase -TcId "TC-RF-05" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"

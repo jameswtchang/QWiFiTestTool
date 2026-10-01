@@ -165,7 +165,7 @@ func (c *Connector) showConnectionInfoDirect() {
 		}
 	}
 
-	chDisplay := formatChannelInfo(iwChannel, freqStr)
+	chDisplay := c.resolveChannelDisplay(iface, iwChannel, freqStr)
 	if chDisplay != "" {
 		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
 	}
@@ -183,7 +183,7 @@ func (c *Connector) showConnectionInfoDirect() {
 		fmt.Printf(ui.Bold+"  %s "+sigColor+"%d dBm (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.signal"), 16), signalDbm, quality)
 	}
 
-	bitrateDisplay := formatBitrateDisplay(txBitrate, rxBitrate)
+	bitrateDisplay := c.resolveBitrateDisplay(iface, txBitrate, rxBitrate)
 	if bitrateDisplay != "" {
 		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
 	}

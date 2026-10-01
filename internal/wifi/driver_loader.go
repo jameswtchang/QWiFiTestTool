@@ -26,9 +26,14 @@ func LoadDriver(module *models.WiFiModule) error {
 
 	// Load prerequisite ko files first (e.g., BSP driver before functional driver)
 	preloads := module.Kernel.GetPreloadKoList()
-	for _, preKo := range preloads {
+	preloadArgs := module.Kernel.GetPreloadArgsList()
+	for i, preKo := range preloads {
+		args := ""
+		if i < len(preloadArgs) {
+			args = preloadArgs[i]
+		}
 		fmt.Println(i18n.Tf("drv.load_preload", preKo))
-		if err := findAndInsmod(preKo, ""); err != nil {
+		if err := findAndInsmod(preKo, args); err != nil {
 			// pcie-dw-rockchip may not exist on non-Rockchip boards; skip gracefully
 			if strings.Contains(preKo, "pcie-dw-") {
 				fmt.Println(i18n.Tf("drv.preload_skip", preKo))

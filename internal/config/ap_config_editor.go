@@ -336,8 +336,12 @@ func (e *APConfigEditor) showCurrentConfig() {
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.mode"), 14), e.modeDisplayName(e.params.Mode))
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%dMHz"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.bandwidth"), 14), e.params.Bandwidth)
 	if (e.params.Band == "6G" || e.params.Band == "6g") && e.params.Bandwidth > 20 {
-		primaryCh := CalcPrimaryChannel6G(e.params.Channel, e.params.Bandwidth)
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"Center: %d, Primary: %d (PSC)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), e.params.Channel, primaryCh)
+		centerCh := e.calcHE6GCenterChannel()
+		primaryCh := CalcPrimaryChannel6G(centerCh, e.params.Bandwidth)
+		if centerCh > 0 && isValidPSCForBlock(e.params.Channel, centerCh, e.params.Bandwidth) {
+			primaryCh = e.params.Channel
+		}
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"Center: %d, Primary: %d (PSC)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), centerCh, primaryCh)
 	} else {
 		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%d"+ui.Reset+"\n", ui.AlignLabel(i18n.T("ap_ed.label.channel"), 14), e.params.Channel)
 	}
@@ -816,13 +820,29 @@ func (e *APConfigEditor) generateHostapd() string {
 	// Interface & driver from Kernel config
 	sb.WriteString(fmt.Sprintf("interface=%s\n", e.module.Kernel.GetInterface()))
 	sb.WriteString(fmt.Sprintf("driver=%s\n", e.module.Kernel.GetDriverBackend()))
+	ctrlInterface := "/var/run/hostapd"
+	ctrlGroup := "0"
+	if e.module != nil {
+		for _, p := range e.module.APConfig.FixedParams {
+			if p.Key == "ctrl_interface" && p.Value != "" {
+				ctrlInterface = p.Value
+			}
+			if p.Key == "ctrl_interface_group" && p.Value != "" {
+				ctrlGroup = p.Value
+			}
+		}
+	}
+	sb.WriteString(fmt.Sprintf("ctrl_interface=%s\n", ctrlInterface))
+	sb.WriteString(fmt.Sprintf("ctrl_interface_group=%s\n", ctrlGroup))
 
 	// SSID
 	sb.WriteString(fmt.Sprintf("ssid=%s\n", e.params.SSID))
 
 	// Country — skip if driver handles regulatory via rtw_country_code
+	countryWritten := false
 	if !strings.Contains(e.module.Kernel.InsmodArgs, "rtw_country_code") {
 		sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
+		countryWritten = true
 		if e.params.Band != "sub-GHz" {
 			sb.WriteString("ieee80211d=1\n")
 		}
@@ -837,10 +857,31 @@ func (e *APConfigEditor) generateHostapd() string {
 
 	// Channel
 	primaryChannel := e.params.Channel
+	var centerCh int
 	if (e.params.Band == "6G" || e.params.Band == "6g") && e.params.Bandwidth > 20 {
-		primaryChannel = CalcPrimaryChannel6G(e.params.Channel, e.params.Bandwidth)
+		centerCh = e.calcHE6GCenterChannel()
+		if centerCh > 0 {
+			if isValidPSCForBlock(e.params.Channel, centerCh, e.params.Bandwidth) {
+				primaryChannel = e.params.Channel
+			} else {
+				primaryChannel = CalcPrimaryChannel6G(centerCh, e.params.Bandwidth)
+			}
+		}
+	} else if (e.params.Band == "5G" || e.params.Band == "5g") && e.params.Bandwidth >= 80 {
+		centerCh = e.calcVHTCenterChannel()
 	}
 	sb.WriteString(fmt.Sprintf("channel=%d\n", primaryChannel))
+
+	// DFS check for 5GHz: requires country_code, ieee80211d=1, ieee80211h=1
+	if isDFSChannel(e.params.Band, e.params.Channel, centerCh, e.params.Bandwidth) {
+		if !countryWritten {
+			sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
+		}
+		if e.params.Band == "sub-GHz" || strings.Contains(e.module.Kernel.InsmodArgs, "rtw_country_code") {
+			sb.WriteString("ieee80211d=1\n")
+		}
+		sb.WriteString("ieee80211h=1\n")
+	}
 
 	// Mode → ieee80211 flags
 	switch e.params.Mode {
@@ -893,7 +934,17 @@ func (e *APConfigEditor) generateHostapd() string {
 			}
 			centerCh := e.calcHE6GCenterChannel()
 			if centerCh > 0 {
-				sb.WriteString(fmt.Sprintf("he_oper_centr_freq_seg0_idx=%d\n", centerCh))
+				heCenter := centerCh
+				if e.params.Bandwidth == 320 {
+					// 320MHz has two 160MHz sub-bands: (center - 16) and (center + 16).
+					// HE only supports up to 160MHz, so he seg0 must point to the 160MHz containing primaryChannel.
+					if primaryChannel < centerCh {
+						heCenter = centerCh - 16
+					} else {
+						heCenter = centerCh + 16
+					}
+				}
+				sb.WriteString(fmt.Sprintf("he_oper_centr_freq_seg0_idx=%d\n", heCenter))
 				if e.params.Mode == "be" {
 					sb.WriteString(fmt.Sprintf("eht_oper_centr_freq_seg0_idx=%d\n", centerCh))
 				}
@@ -1004,8 +1055,11 @@ func (e *APConfigEditor) generateHostapd() string {
 				"vht_oper_chwidth": true, "vht_oper_centr_freq_seg0_idx": true,
 				"he_oper_chwidth": true, "he_oper_centr_freq_seg0_idx": true,
 				"eht_oper_chwidth": true, "eht_oper_centr_freq_seg0_idx": true,
-				"op_class":     true,
 				"wpa_pairwise": true, // rsn_pairwise is already set in security block
+				"ctrl_interface": true, "ctrl_interface_group": true,
+			}
+			if e.params.Band == "6G" || e.params.Band == "6g" {
+				skipKeys["op_class"] = true
 			}
 			if e.params.Security == "WPA3" {
 				skipKeys["ieee80211w"] = true // already set in security block
@@ -1392,10 +1446,13 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 		"ieee80211w": true, "rsn_pairwise": true,
 		"vht_oper_chwidth": true, "he_oper_chwidth": true, "eht_oper_chwidth": true,
 		"vht_oper_centr_freq_seg0_idx": true, "he_oper_centr_freq_seg0_idx": true, "eht_oper_centr_freq_seg0_idx": true,
-		"op_class": true, "wmm_enabled": true,
+		"wmm_enabled": true,
 		"interface":   true, "driver": true,
 		// daemon-level params that should not leak into generated config
 		"ctrl_interface": true, "ctrl_interface_group": true,
+	}
+	if e.params.Band == "6G" || e.params.Band == "6g" {
+		managedKeys["op_class"] = true
 	}
 
 	// Build a set of keys coming from the new profile, so we can evict
@@ -1431,4 +1488,60 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 	if e.module != nil {
 		e.module.APConfig.FixedParams = newFixed
 	}
+}
+
+// isValidPSCForBlock checks if the user's channel is already a valid PSC channel within the specified block
+func isValidPSCForBlock(ch int, centerCh int, bw int) bool {
+	// A valid 6GHz PSC channel is 5, 21, 37, 53, 69, 85... -> (ch-5)%16 == 0
+	if (ch-5)%16 != 0 {
+		return false
+	}
+	
+	var maxDist int
+	switch bw {
+	case 40:
+		maxDist = 2
+	case 80:
+		maxDist = 6
+	case 160:
+		maxDist = 14
+	case 320:
+		maxDist = 30
+	default:
+		maxDist = 0
+	}
+	return ch >= centerCh-maxDist && ch <= centerCh+maxDist
+}
+
+// isDFSChannel checks if a given 5GHz operating block intersects with DFS channels (52-144)
+func isDFSChannel(band string, ch int, centerCh int, bw int) bool {
+	bandUpper := strings.ToUpper(band)
+	if bandUpper != "5G" {
+		return false
+	}
+	// Direct DFS channels in 5GHz: UNII-2A (52-64) and UNII-2C (100-144)
+	if (ch >= 52 && ch <= 64) || (ch >= 100 && ch <= 144) {
+		return true
+	}
+	// For 160MHz, channels 36-48 bond UNII-1 with UNII-2A (channels 52-64)
+	if bw == 160 && (ch >= 36 && ch <= 48) {
+		return true
+	}
+	// UNII-3 (ch 149-177) is NOT DFS — exclude before fallback range check
+	if ch >= 149 && ch <= 177 {
+		return false
+	}
+	// Fallback to center channel range check if centerCh is provided
+	if centerCh > 0 && bw >= 80 {
+		var maxDist int
+		if bw == 160 {
+			maxDist = 14
+		} else {
+			maxDist = 6
+		}
+		minCh := centerCh - maxDist
+		maxCh := centerCh + maxDist
+		return (maxCh >= 52 && minCh <= 64) || (maxCh >= 100 && minCh <= 144)
+	}
+	return false
 }

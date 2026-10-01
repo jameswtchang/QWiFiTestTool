@@ -17,11 +17,29 @@ func TestFilterPresets(t *testing.T) {
 	}
 
 	p6g := filterPresets(fullCaps, "6G")
-	if len(p6g) != 7 {
-		t.Errorf("Expected 7 presets for full 6G, got %d", len(p6g))
+	if len(p6g) != 9 {
+		t.Errorf("Expected 9 presets for full 6G, got %d", len(p6g))
 	}
 	if p6g[0].Mode != "be" || p6g[0].Bandwidth != 320 {
 		t.Errorf("Expected first preset to be be-320M, got %s-%dM", p6g[0].Mode, p6g[0].Bandwidth)
+	}
+
+	// Verify all new presets are present in 5G for fullCaps
+	p5gFull := filterPresets(fullCaps, "5G")
+	presetMap5G := make(map[string]bool)
+	for _, p := range p5gFull {
+		presetMap5G[p.Label] = true
+	}
+	expected5G := []string{
+		"WiFi 7 (802.11be) - 40 MHz",
+		"WiFi 7 (802.11be) - 20 MHz",
+		"WiFi 5 (802.11ac) - 160 MHz",
+		"WiFi 5 (802.11ac) - 20 MHz",
+	}
+	for _, exp := range expected5G {
+		if !presetMap5G[exp] {
+			t.Errorf("Expected 5G preset %q to be present", exp)
+		}
 	}
 
 	// Case 2: WiFi 6 module (max 80M, no 6G, no WiFi 7)
@@ -227,6 +245,181 @@ func TestOpClassBandwidthParsing(t *testing.T) {
 	}
 	if editor.params.Bandwidth != 40 {
 		t.Errorf("Expected Bandwidth=40 for op_class 132, got %d", editor.params.Bandwidth)
+	}
+}
+
+func TestNewPresetsGenerateHostapd(t *testing.T) {
+	module := &models.WiFiModule{
+		ID:          "test_wifi7_module",
+		DisplayName: "Test WiFi 7 Module",
+		Kernel: models.KernelConfig{
+			Interface:     "wlan0",
+			DriverBackend: "nl80211",
+		},
+	}
+
+	// 1. 5G 11ac 160M
+	e5gAc160 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "5G", Mode: "ac", Bandwidth: 160, Channel: 36, SSID: "Test5G", Security: "Open",
+		},
+	}
+	conf5gAc160 := e5gAc160.generateHostapd()
+	if !strings.Contains(conf5gAc160, "vht_oper_chwidth=2") || !strings.Contains(conf5gAc160, "vht_oper_centr_freq_seg0_idx=50") {
+		t.Errorf("5G ac 160M missing vht params: %s", conf5gAc160)
+	}
+
+	// 2. 5G 11ac 20M
+	e5gAc20 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "5G", Mode: "ac", Bandwidth: 20, Channel: 36, SSID: "Test5G", Security: "Open",
+		},
+	}
+	conf5gAc20 := e5gAc20.generateHostapd()
+	if !strings.Contains(conf5gAc20, "ht_capab=[HT20]") || strings.Contains(conf5gAc20, "vht_oper_chwidth") {
+		t.Errorf("5G ac 20M should have HT20 and no vht_oper_chwidth: %s", conf5gAc20)
+	}
+
+	// 3. 5G 11be 40M
+	e5gBe40 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "5G", Mode: "be", Bandwidth: 40, Channel: 36, SSID: "Test5G", Security: "Open",
+		},
+	}
+	conf5gBe40 := e5gBe40.generateHostapd()
+	if !strings.Contains(conf5gBe40, "ieee80211be=1") || !strings.Contains(conf5gBe40, "ht_capab=[HT40+]") || strings.Contains(conf5gBe40, "eht_oper_chwidth") {
+		t.Errorf("5G be 40M should have 11be and HT40+ without eht_oper_chwidth: %s", conf5gBe40)
+	}
+
+	// 4. 5G 11be 20M
+	e5gBe20 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "5G", Mode: "be", Bandwidth: 20, Channel: 36, SSID: "Test5G", Security: "Open",
+		},
+	}
+	conf5gBe20 := e5gBe20.generateHostapd()
+	if !strings.Contains(conf5gBe20, "ieee80211be=1") || !strings.Contains(conf5gBe20, "ht_capab=[HT20]") || strings.Contains(conf5gBe20, "eht_oper_chwidth") {
+		t.Errorf("5G be 20M should have 11be and HT20 without eht_oper_chwidth: %s", conf5gBe20)
+	}
+
+	// 5. 6G 11be 40M
+	e6gBe40 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "6G", Mode: "be", Bandwidth: 40, Channel: 37, SSID: "Test6G", Security: "WPA3",
+		},
+	}
+	conf6gBe40 := e6gBe40.generateHostapd()
+	if !strings.Contains(conf6gBe40, "op_class=132") || !strings.Contains(conf6gBe40, "eht_oper_centr_freq_seg0_idx=35") || !strings.Contains(conf6gBe40, "eht_oper_chwidth=0") {
+		t.Errorf("6G be 40M should have op_class=132 and center 35: %s", conf6gBe40)
+	}
+
+	// 6. 6G 11be 20M
+	e6gBe20 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "6G", Mode: "be", Bandwidth: 20, Channel: 37, SSID: "Test6G", Security: "WPA3",
+		},
+	}
+	conf6gBe20 := e6gBe20.generateHostapd()
+	if !strings.Contains(conf6gBe20, "op_class=131") || strings.Contains(conf6gBe20, "eht_oper_chwidth") {
+		t.Errorf("6G be 20M should have op_class=131 without eht_oper_chwidth: %s", conf6gBe20)
+	}
+
+	// 7. 6G 11be 320M (Upper sub-band PSC 37 -> HE center 47, EHT center 31)
+	e6gBe320Upper := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "6G", Mode: "be", Bandwidth: 320, Channel: 37, SSID: "Test6G_320", Security: "WPA3",
+		},
+	}
+	conf6gBe320Upper := e6gBe320Upper.generateHostapd()
+	if !strings.Contains(conf6gBe320Upper, "op_class=137") {
+		t.Errorf("6G be 320M missing op_class=137: %s", conf6gBe320Upper)
+	}
+	if !strings.Contains(conf6gBe320Upper, "he_oper_centr_freq_seg0_idx=47") {
+		t.Errorf("6G be 320M upper sub-band should have he_oper_centr_freq_seg0_idx=47: %s", conf6gBe320Upper)
+	}
+	if !strings.Contains(conf6gBe320Upper, "eht_oper_centr_freq_seg0_idx=31") {
+		t.Errorf("6G be 320M should have eht_oper_centr_freq_seg0_idx=31: %s", conf6gBe320Upper)
+	}
+
+	// 8. 6G 11be 320M (Lower sub-band PSC 5 -> HE center 15, EHT center 31)
+	e6gBe320Lower := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "6G", Mode: "be", Bandwidth: 320, Channel: 5, SSID: "Test6G_320_Low", Security: "WPA3",
+		},
+	}
+	conf6gBe320Lower := e6gBe320Lower.generateHostapd()
+	if !strings.Contains(conf6gBe320Lower, "he_oper_centr_freq_seg0_idx=15") {
+		t.Errorf("6G be 320M lower sub-band should have he_oper_centr_freq_seg0_idx=15: %s", conf6gBe320Lower)
+	}
+	if !strings.Contains(conf6gBe320Lower, "eht_oper_centr_freq_seg0_idx=31") {
+		t.Errorf("6G be 320M lower sub-band should have eht_oper_centr_freq_seg0_idx=31: %s", conf6gBe320Lower)
+	}
+	if !strings.Contains(conf6gBe320Lower, "channel=5\n") {
+		t.Errorf("6G be 320M lower sub-band should have channel=5: %s", conf6gBe320Lower)
+	}
+
+	// 9. 5G DFS generation check (ch52, 80MHz)
+	e5gDfs := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "5G", Mode: "ax", Bandwidth: 80, Channel: 52, CountryCode: "US", SSID: "TestDFS", Security: "WPA2",
+		},
+	}
+	conf5gDfs := e5gDfs.generateHostapd()
+	if !strings.Contains(conf5gDfs, "ieee80211h=1") {
+		t.Errorf("5G DFS ch52 missing ieee80211h=1: %s", conf5gDfs)
+	}
+	if strings.Contains(conf5gDfs, "country_ie_env") {
+		t.Errorf("5G DFS should not contain non-standard country_ie_env: %s", conf5gDfs)
+	}
+	if strings.Count(conf5gDfs, "ieee80211d=1") != 1 {
+		t.Errorf("5G DFS ieee80211d=1 should appear exactly once, got %d in: %s", strings.Count(conf5gDfs, "ieee80211d=1"), conf5gDfs)
+	}
+
+	// 10. 5G UNII-3 ch149 80MHz should NOT have ieee80211h=1 (not DFS)
+	e5gUnii3 := &APConfigEditor{
+		module: module,
+		params: APEditorParams{
+			Band: "5G", Mode: "ac", Bandwidth: 80, Channel: 149, CountryCode: "US", SSID: "TestUNII3", Security: "Open",
+		},
+	}
+	conf5gUnii3 := e5gUnii3.generateHostapd()
+	if strings.Contains(conf5gUnii3, "ieee80211h=1") {
+		t.Errorf("5G UNII-3 ch149 80MHz should NOT have ieee80211h=1 (not DFS): %s", conf5gUnii3)
+	}
+
+	// 11. Sub-GHz (FGH200M) should preserve op_class from FixedParams (e.g. op_class=70)
+	fghModule := &models.WiFiModule{
+		ID:          "quectel_fgh200m",
+		DisplayName: "Quectel FGH200M",
+		Kernel: models.KernelConfig{
+			Interface:     "wlan0",
+			DriverBackend: "nl80211",
+		},
+		APConfig: models.APConfig{
+			FixedParams: []models.Param{
+				{Key: "op_class", Value: "70"},
+				{Key: "s1g_prim_chwidth", Value: "1"},
+			},
+		},
+	}
+	eFgh := &APConfigEditor{
+		module: fghModule,
+		params: APEditorParams{
+			Band: "sub-GHz", Mode: "ah", Bandwidth: 8, Channel: 40, CountryCode: "AU", SSID: "Quectel-halow", Security: "WPA3",
+		},
+	}
+	confFgh := eFgh.generateHostapd()
+	if !strings.Contains(confFgh, "op_class=70\n") {
+		t.Errorf("Sub-GHz FGH200M missing op_class=70 from FixedParams: %s", confFgh)
 	}
 }
 

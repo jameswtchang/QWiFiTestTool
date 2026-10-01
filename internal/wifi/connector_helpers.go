@@ -1,12 +1,15 @@
 package wifi
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
 	"qwifitesttool/internal/i18n"
+	"qwifitesttool/internal/sys"
 	"qwifitesttool/internal/ui"
 )
 
@@ -164,7 +167,7 @@ func (c *Connector) showConnectionInfo() {
 		}
 	}
 
-	chDisplay := formatChannelInfo(iwChannel, statusMap["freq"])
+	chDisplay := c.resolveChannelDisplay(iface, iwChannel, statusMap["freq"])
 	if chDisplay != "" {
 		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
 	}
@@ -212,7 +215,7 @@ func (c *Connector) showConnectionInfo() {
 	}
 
 	// Print Bitrate
-	bitrateDisplay := formatBitrateDisplay(txBitrate, rxBitrate)
+	bitrateDisplay := c.resolveBitrateDisplay(iface, txBitrate, rxBitrate)
 	if bitrateDisplay != "" {
 		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
 	}
@@ -286,7 +289,7 @@ func (c *Connector) showConnectionInfo() {
 }
 
 // formatChannelInfo combines frequency and iw info into a concise channel/band string
-func formatChannelInfo(iwChannel, freqStr string) string {
+func formatChannelInfo(iwChannel, freqStr string, isSubGHz bool) string {
 	freq := 0
 	if freqStr != "" {
 		fmt.Sscanf(freqStr, "%d", &freq)
@@ -303,6 +306,10 @@ func formatChannelInfo(iwChannel, freqStr string) string {
 		} else if freq >= 5925 && freq <= 7125 {
 			band = "6GHz"
 		}
+	}
+
+	if isSubGHz {
+		band = "Sub-GHz (HaLow)"
 	}
 
 	if iwChannel == "" {
@@ -422,4 +429,191 @@ func parseBitrate(raw string) string {
 		return rate
 	}
 	return raw
+}
+
+// resolveChannelDisplay resolves band and channel display, checking for Sub-GHz / Morse Micro hardware info
+func (c *Connector) resolveChannelDisplay(iface string, iwChannel, freqStr string) string {
+	isSubGHz := c.module != nil && c.module.ID == "quectel_fgh200m"
+	if isSubGHz {
+		if mInfo := queryMorseChannel(iface); mInfo != nil {
+			return formatMorseChannelDisplay(mInfo, iwChannel)
+		}
+	}
+	return formatChannelInfo(iwChannel, freqStr, isSubGHz)
+}
+
+// resolveBitrateDisplay resolves bitrate display, checking for Sub-GHz / Morse Micro PHY rate
+func (c *Connector) resolveBitrateDisplay(iface string, txBitrate, rxBitrate string) string {
+	emulated := formatBitrateDisplay(txBitrate, rxBitrate)
+	isSubGHz := c.module != nil && c.module.ID == "quectel_fgh200m"
+	if isSubGHz {
+		if sInfo := queryMorseStats(iface); sInfo != nil {
+			return formatMorseBitrateDisplay(sInfo, emulated)
+		}
+	}
+	return emulated
+}
+
+// MorseChannelInfo holds hardware frequency and bandwidth parsed from morse_cli
+type MorseChannelInfo struct {
+	OperatingFreqKHz int
+	OperatingBWMHz   int
+	PrimaryBWMHz     int
+	PrimaryIndex     int
+}
+
+// MorseStatsInfo holds hardware physical layer statistics parsed from morse_cli
+type MorseStatsInfo struct {
+	PhyRateMaxKbps int
+	PhyRateMinKbps int
+}
+
+func queryMorseChannel(iface string) *MorseChannelInfo {
+	morseCli := sys.FindCommand("morse_cli", "/usr/sbin/morse_cli")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, morseCli, "-i", iface, "channel").Output()
+	if err != nil {
+		return nil
+	}
+	return parseMorseChannelOutput(string(out))
+}
+
+func queryMorseStats(iface string) *MorseStatsInfo {
+	morseCli := sys.FindCommand("morse_cli", "/usr/sbin/morse_cli")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, morseCli, "-i", iface, "stats").Output()
+	if err != nil {
+		return nil
+	}
+	return parseMorseStatsOutput(string(out))
+}
+
+func parseMorseChannelOutput(out string) *MorseChannelInfo {
+	info := &MorseChannelInfo{}
+	hasData := false
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Operating Frequency:") {
+			valStr := strings.TrimPrefix(line, "Operating Frequency:")
+			valStr = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(valStr), "kHz"))
+			if v, err := strconv.Atoi(valStr); err == nil && v > 0 {
+				info.OperatingFreqKHz = v
+				hasData = true
+			}
+		} else if strings.HasPrefix(line, "Operating BW:") {
+			valStr := strings.TrimPrefix(line, "Operating BW:")
+			valStr = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(valStr), "MHz"))
+			if v, err := strconv.Atoi(valStr); err == nil && v > 0 {
+				info.OperatingBWMHz = v
+				hasData = true
+			}
+		} else if strings.HasPrefix(line, "Primary BW:") {
+			valStr := strings.TrimPrefix(line, "Primary BW:")
+			valStr = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(valStr), "MHz"))
+			if v, err := strconv.Atoi(valStr); err == nil && v > 0 {
+				info.PrimaryBWMHz = v
+			}
+		} else if strings.HasPrefix(line, "Primary Channel Index:") {
+			valStr := strings.TrimPrefix(line, "Primary Channel Index:")
+			if v, err := strconv.Atoi(strings.TrimSpace(valStr)); err == nil {
+				info.PrimaryIndex = v
+			}
+		}
+	}
+	if !hasData || info.OperatingFreqKHz == 0 {
+		return nil
+	}
+	return info
+}
+
+func extractKernelMappedChannel(iwChannel string) string {
+	if iwChannel == "" {
+		return ""
+	}
+	clean := strings.TrimPrefix(iwChannel, "channel ")
+	parts := strings.Split(clean, ",")
+	first := strings.TrimSpace(parts[0])
+	fields := strings.Fields(first)
+	if len(fields) > 0 {
+		return "CH " + fields[0]
+	}
+	return ""
+}
+
+func formatMorseChannelDisplay(mInfo *MorseChannelInfo, iwChannel string) string {
+	if mInfo == nil || mInfo.OperatingFreqKHz <= 0 {
+		return ""
+	}
+	freqStr := ""
+	if mInfo.OperatingFreqKHz%1000 == 0 {
+		freqStr = fmt.Sprintf("%d MHz", mInfo.OperatingFreqKHz/1000)
+	} else {
+		freqStr = fmt.Sprintf("%.1f MHz", float64(mInfo.OperatingFreqKHz)/1000.0)
+	}
+
+	bwStr := ""
+	if mInfo.OperatingBWMHz > 0 {
+		if mInfo.PrimaryBWMHz > 0 && mInfo.PrimaryBWMHz != mInfo.OperatingBWMHz {
+			bwStr = fmt.Sprintf(" [%d MHz, Primary: %d MHz]", mInfo.OperatingBWMHz, mInfo.PrimaryBWMHz)
+		} else {
+			bwStr = fmt.Sprintf(" [%d MHz]", mInfo.OperatingBWMHz)
+		}
+	}
+
+	mappedCh := extractKernelMappedChannel(iwChannel)
+	if mappedCh != "" {
+		return fmt.Sprintf("Sub-GHz (HaLow) / %s%s (Mapped: %s)", freqStr, bwStr, mappedCh)
+	}
+	return fmt.Sprintf("Sub-GHz (HaLow) / %s%s", freqStr, bwStr)
+}
+
+func parseMorseStatsOutput(out string) *MorseStatsInfo {
+	info := &MorseStatsInfo{}
+	hasData := false
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "PHY rate max (kbps)") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
+					info.PhyRateMaxKbps = v
+					hasData = true
+				}
+			}
+		} else if strings.HasPrefix(line, "PHY rate min (kbps)") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
+					info.PhyRateMinKbps = v
+				}
+			}
+		}
+	}
+	if !hasData {
+		return nil
+	}
+	return info
+}
+
+func formatMorseBitrateDisplay(sInfo *MorseStatsInfo, emulatedBitrate string) string {
+	if sInfo == nil || sInfo.PhyRateMaxKbps <= 0 {
+		return emulatedBitrate
+	}
+	maxMbps := float64(sInfo.PhyRateMaxKbps) / 1000.0
+	minMbps := float64(sInfo.PhyRateMinKbps) / 1000.0
+	rateStr := ""
+	if minMbps > 0 && minMbps != maxMbps {
+		rateStr = fmt.Sprintf("%.1f-%.1f Mbps", minMbps, maxMbps)
+	} else {
+		rateStr = fmt.Sprintf("%.1f Mbps", maxMbps)
+	}
+
+	if emulatedBitrate != "" {
+		return fmt.Sprintf("%s (S1G PHY) [VHT Emulated: %s]", rateStr, emulatedBitrate)
+	}
+	return fmt.Sprintf("%s (S1G PHY Rate)", rateStr)
 }

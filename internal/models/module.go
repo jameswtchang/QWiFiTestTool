@@ -2,6 +2,8 @@ package models
 
 import (
 	"encoding/xml"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -23,11 +25,12 @@ type WiFiModule struct {
 // KernelConfig contains kernel-level module parameters
 type KernelConfig struct {
 	KoName        string `xml:"KoName"`        // Kernel module filename (e.g., 8821cu.ko)
-	PreloadKo     string `xml:"PreloadKo"`     // Prerequisite .ko files to load before KoName (comma-separated)
-	InsmodArgs    string `xml:"InsmodArgs"`     // Arguments for insmod command
-	PostLoadCmd   string `xml:"PostLoadCmd"`   // Command to execute after driver loading (e.g., "ifconfig wlan0 up")
-	Interface     string `xml:"Interface"`      // Network interface name (default: wlan0)
-	DriverBackend string `xml:"DriverBackend"`  // Driver backend (default: nl80211)
+	PreloadKo         string `xml:"PreloadKo"`         // Prerequisite .ko files to load before KoName (comma-separated)
+	PreloadInsmodArgs string `xml:"PreloadInsmodArgs"` // Optional arguments for prerequisite .ko files (comma-separated matching PreloadKo)
+	InsmodArgs        string `xml:"InsmodArgs"`        // Arguments for insmod command
+	PostLoadCmd       string `xml:"PostLoadCmd"`       // Command to execute after driver loading (e.g., "ifconfig wlan0 up")
+	Interface         string `xml:"Interface"`         // Network interface name (default: wlan0)
+	DriverBackend     string `xml:"DriverBackend"`     // Driver backend (default: nl80211)
 }
 
 // GetPreloadKoList returns prerequisite ko files as a slice
@@ -41,6 +44,19 @@ func (k *KernelConfig) GetPreloadKoList() []string {
 		if trimmed := strings.TrimSpace(p); trimmed != "" {
 			result = append(result, trimmed)
 		}
+	}
+	return result
+}
+
+// GetPreloadArgsList returns prerequisite ko arguments as a slice (comma-separated matching PreloadKo)
+func (k *KernelConfig) GetPreloadArgsList() []string {
+	if k.PreloadInsmodArgs == "" {
+		return nil
+	}
+	parts := strings.Split(k.PreloadInsmodArgs, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		result = append(result, strings.TrimSpace(p))
 	}
 	return result
 }
@@ -86,12 +102,61 @@ type Param struct {
 	Value string `xml:",chardata"`
 }
 
-// GetInterface returns the interface name, defaulting to "wlan0" if empty
+// GetInterface returns the interface name by dynamically detecting it from the driver,
+// defaulting to the configured interface or "wlan0" if empty.
 func (k *KernelConfig) GetInterface() string {
+	// 1. Dynamically find the interface based on the kernel module name
+	if k.KoName != "" {
+		driverName := strings.ReplaceAll(strings.TrimSuffix(k.KoName, ".ko"), "-", "_")
+		iface := findInterfaceByDriver(driverName)
+		if iface != "" {
+			return iface
+		}
+	}
+
+	// 2. Fallback to configured or default interface
 	if k.Interface == "" {
 		return "wlan0"
 	}
 	return k.Interface
+}
+
+func findInterfaceByDriver(driverName string) string {
+	files, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return ""
+	}
+	for _, f := range files {
+		iface := f.Name()
+		if iface == "lo" || iface == "sit0" || strings.HasPrefix(iface, "eth") {
+			continue
+		}
+		
+		// Check /sys/class/net/<iface>/device/driver symlink
+		driverPath := filepath.Join("/sys/class/net", iface, "device", "driver")
+		target, err := os.Readlink(driverPath)
+		if err == nil {
+			targetBase := filepath.Base(target)
+			if targetBase == driverName || strings.ReplaceAll(targetBase, "-", "_") == driverName {
+				return iface
+			}
+		}
+
+		// Also check /sys/class/net/<iface>/device/uevent for DRIVER=...
+		ueventPath := filepath.Join("/sys/class/net", iface, "device", "uevent")
+		if data, err := os.ReadFile(ueventPath); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "DRIVER=") {
+					val := strings.TrimPrefix(line, "DRIVER=")
+					if val == driverName || strings.ReplaceAll(val, "-", "_") == driverName {
+						return iface
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // GetDriverBackend returns the driver backend, defaulting to "nl80211" if empty

@@ -748,7 +748,22 @@ func (c *Connector) runDHCPClient() error {
 	fmt.Printf("[CMD] %s\n", cmdStr)
 
 	cmd := exec.CommandContext(ctx1, udhcpcPath, args...)
-	output, err := cmd.CombinedOutput()
+	
+	// Prevent pipe hang from child scripts (like default.script)
+	tmpFile1, errTmp1 := os.CreateTemp("", "dhcp1-*.log")
+	if errTmp1 == nil {
+		defer os.Remove(tmpFile1.Name())
+		cmd.Stdout = tmpFile1
+		cmd.Stderr = tmpFile1
+	}
+	
+	err := cmd.Run()
+	var output []byte
+	if tmpFile1 != nil {
+		tmpFile1.Close()
+		output, _ = os.ReadFile(tmpFile1.Name())
+	}
+	
 	if c.log != nil {
 		c.log.LogCmd(cmdStr, output, err)
 	}
@@ -767,7 +782,21 @@ func (c *Connector) runDHCPClient() error {
 	fmt.Printf("[CMD] %s\n", dhCmdStr)
 
 	cmd = exec.CommandContext(ctx2, dhclientPath, dhArgs...)
-	output, err = cmd.CombinedOutput()
+	
+	// Prevent pipe hang from child scripts
+	tmpFile2, errTmp2 := os.CreateTemp("", "dhcp2-*.log")
+	if errTmp2 == nil {
+		defer os.Remove(tmpFile2.Name())
+		cmd.Stdout = tmpFile2
+		cmd.Stderr = tmpFile2
+	}
+	
+	err = cmd.Run()
+	if tmpFile2 != nil {
+		tmpFile2.Close()
+		output, _ = os.ReadFile(tmpFile2.Name())
+	}
+
 	if c.log != nil {
 		c.log.LogCmd(dhCmdStr, output, err)
 	}
