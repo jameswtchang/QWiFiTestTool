@@ -15,6 +15,7 @@ import (
 	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/logger"
 	"qwifitesttool/internal/models"
+	"qwifitesttool/internal/sys"
 	"qwifitesttool/internal/ui"
 )
 
@@ -193,7 +194,9 @@ func (h *Hotspot) startServices() error {
 
 	// Morse Micro HaLow specific check: ensure kernel channelization_scheme matches AP config
 	if h.module != nil && h.module.ID == "quectel_fgh200m" {
-		h.ensureMorseChannelizationScheme()
+		if err := h.ensureMorseChannelizationScheme(); err != nil {
+			return err
+		}
 	}
 
 	// Setup interface IP before starting dnsmasq
@@ -209,12 +212,18 @@ func (h *Hotspot) startServices() error {
 		return err
 	}
 
-	// Wait up to 6 seconds for hostapd to initialize.
+	// Wait for hostapd to initialize.
 	// PCIe/CNSS based modules (Qualcomm) need extra time for txpower initialization
 	// after beacon is set; USB/SDIO modules (Realtek, MTK) may report 0.00 dBm permanently.
+	// DFS channels require Channel Availability Check (CAC) which typically takes 60 seconds.
 	isPCIe := strings.Contains(h.module.Kernel.PreloadKo, "pcie") || strings.Contains(h.module.Kernel.PreloadKo, "cnss")
 	apReady := false
-	for i := 0; i < 15; i++ {
+	maxWait := 15
+	if data, err := os.ReadFile(h.hostapdConfig); err == nil && strings.Contains(string(data), "ieee80211h=1") {
+		maxWait = 75 // CAC 60s + buffer for DFS channels
+		fmt.Println(ui.Yellow + "[INFO] 偵測到 DFS 頻道 (ieee80211h=1)，正在等待 CAC 頻道可用性檢查 (~60秒)..." + ui.Reset)
+	}
+	for i := 0; i < maxWait; i++ {
 		time.Sleep(1 * time.Second)
 		out, err := exec.Command("iw", "dev", h.module.Kernel.GetInterface(), "info").Output()
 		if err != nil {
@@ -368,7 +377,7 @@ func (h *Hotspot) setRegulatoryDomain() {
 }
 
 // ensureMorseChannelizationScheme verifies and updates dot11ah channelization_scheme for Morse HaLow AP
-func (h *Hotspot) ensureMorseChannelizationScheme() {
+func (h *Hotspot) ensureMorseChannelizationScheme() error {
 	country := "AU"
 	if h.hostapdConfig != "" {
 		if data, err := os.ReadFile(h.hostapdConfig); err == nil {
@@ -387,34 +396,97 @@ func (h *Hotspot) ensureMorseChannelizationScheme() {
 		targetScheme = "3" // Scheme 3 for US (IEEE802.11-REVmf)
 	}
 
-	curSchemeBytes, err := os.ReadFile("/sys/module/dot11ah/parameters/channelization_scheme")
-	curScheme := ""
-	if err == nil {
-		curScheme = strings.TrimSpace(string(curSchemeBytes))
+	schemePath := "/sys/module/dot11ah/parameters/channelization_scheme"
+	readScheme := func() string {
+		if curSchemeBytes, err := os.ReadFile(schemePath); err == nil {
+			return strings.TrimSpace(string(curSchemeBytes))
+		}
+		return ""
 	}
+	curScheme := readScheme()
 
 	morseLoaded := false
 	if _, err := os.Stat("/sys/module/morse"); err == nil {
 		morseLoaded = true
 	}
+	dot11Loaded := false
+	if _, err := os.Stat("/sys/module/dot11ah"); err == nil {
+		dot11Loaded = true
+	}
 
-	if !morseLoaded || curScheme != targetScheme {
-		fmt.Printf("[INFO] Morse HaLow AP 需要 scheme=%s (%s), 目前為 scheme=%s (morse: %v), 正在重新載入驅動...\n",
-			targetScheme, country, curScheme, morseLoaded)
+	if morseLoaded && dot11Loaded && curScheme == targetScheme {
+		return nil
+	}
 
-		if morseLoaded {
-			_ = UnloadDriver(h.module)
-		}
+	fmt.Printf("[INFO] Morse HaLow AP 需要 scheme=%s (%s), 目前為 scheme=%s (morse: %v, dot11ah: %v), 正在重新載入驅動...\n",
+		targetScheme, country, curScheme, morseLoaded, dot11Loaded)
 
-		h.module.Kernel.PreloadInsmodArgs = fmt.Sprintf("channelization_scheme=%s", targetScheme)
-		h.module.Kernel.InsmodArgs = fmt.Sprintf("country=%s bcf=bcf_default.bin", country)
+	rmmodPath := sys.FindCommand("rmmod", "rmmod")
 
-		if err := LoadDriver(h.module); err != nil {
-			fmt.Printf("[WARN] 自動重新載入 Morse 驅動失敗: %v\n", err)
-		} else {
-			fmt.Println("[INFO] Morse 驅動已就緒並套用正確 Channelization Scheme")
+	if morseLoaded {
+		// 必須先將網卡 down 才能成功 rmmod
+		iface := h.module.Kernel.GetInterface()
+		exec.Command("ip", "link", "set", iface, "down").Run()
+		time.Sleep(200 * time.Millisecond)
+
+		if err := UnloadDriver(h.module); err != nil {
+			return fmt.Errorf("移除 Morse 驅動失敗，無法套用 Channelization Scheme: %w", err)
 		}
 	}
+
+	// 確保 dot11ah 模組也被卸載
+	if _, err := os.Stat("/sys/module/dot11ah"); err == nil {
+		exec.Command(rmmodPath, "dot11ah").Run()
+		time.Sleep(200 * time.Millisecond)
+	}
+	if _, err := os.Stat("/sys/module/dot11ah"); err == nil {
+		return fmt.Errorf("無法卸載 dot11ah 模組，可能仍有進程占用")
+	}
+
+	// 保留除 country 之外的原有 insmod 參數（如 bcf=...）
+	var otherArgs []string
+	hasBcf := false
+	for _, arg := range strings.Fields(h.module.Kernel.InsmodArgs) {
+		if strings.HasPrefix(arg, "country=") {
+			continue
+		}
+		if strings.HasPrefix(arg, "bcf=") {
+			hasBcf = true
+		}
+		otherArgs = append(otherArgs, arg)
+	}
+	if !hasBcf {
+		otherArgs = append(otherArgs, "bcf=bcf_default.bin")
+	}
+
+	h.module.Kernel.PreloadInsmodArgs = fmt.Sprintf("channelization_scheme=%s", targetScheme)
+	h.module.Kernel.InsmodArgs = strings.TrimSpace(fmt.Sprintf("country=%s %s", country, strings.Join(otherArgs, " ")))
+
+	if err := LoadDriver(h.module); err != nil {
+		return fmt.Errorf("自動重新載入 Morse 驅動失敗: %w", err)
+	}
+
+	// 驗證 channelization_scheme（若 sysfs 參數可讀）
+	if afterScheme := readScheme(); afterScheme != "" && afterScheme != targetScheme {
+		return fmt.Errorf("重新載入後 Channelization Scheme 不符 (預期 %s, 實際 %s)", targetScheme, afterScheme)
+	}
+
+	// 等待網路介面出現（最多 8 秒）
+	iface := h.module.Kernel.GetInterface()
+	ifaceReady := false
+	for i := 0; i < 16; i++ {
+		if _, err := os.Stat("/sys/class/net/" + iface); err == nil {
+			ifaceReady = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !ifaceReady {
+		return fmt.Errorf("Morse 驅動載入後網路介面 %s 未出現", iface)
+	}
+
+	fmt.Println("[INFO] Morse 驅動已就緒並套用正確 Channelization Scheme")
+	return nil
 }
 
 // startHostapd starts the hostapd daemon

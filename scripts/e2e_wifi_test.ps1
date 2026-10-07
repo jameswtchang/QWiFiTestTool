@@ -68,7 +68,7 @@ function Run-ToolSession {
     Start-Sleep -Milliseconds 300
 }
 
-# ==================== Phase 1: AP Preset Matrix (23 Presets) ====================
+# ==================== Phase 1: AP Preset Matrix (29 Presets) ====================
 
 function Test-ApPresetConfig {
     param(
@@ -319,8 +319,14 @@ function Run-ApRfTestCase {
     $startTime = [System.DateTime]::Now
 
     # Use ReadLineAsync to avoid infinite blocking when TUI stops outputting
+    # DFS CAC requires 60 seconds. Extend timeout for 5GHz 160M presets or when CAC is active.
+    $timeoutSec = 35
+    if ($BandKey -eq 2 -and ($PresetKey -eq 1 -or $PresetKey -eq 5 -or $PresetKey -eq 9)) {
+        $timeoutSec = 90
+    }
+
     $readTask = $proc.StandardOutput.ReadLineAsync()
-    while (([System.DateTime]::Now - $startTime).TotalSeconds -lt 30) {
+    while (([System.DateTime]::Now - $startTime).TotalSeconds -lt $timeoutSec) {
         if (-not $readTask.Wait(1000)) { continue }
         $line = $readTask.Result
         if ($null -eq $line) { break }
@@ -329,6 +335,11 @@ function Run-ApRfTestCase {
         $trimmed = $line.Trim()
         if ($trimmed -match "(\[INFO\]|\[CMD\]|SSID:|channel|width:|Ctrl\+C|stop|fail)") {
             Write-Host "  [TUI] $trimmed" -ForegroundColor Gray
+        }
+
+        # Dynamically extend timeout if DFS CAC is detected in output
+        if ($trimmed -match "(CAC.*60|ieee80211h=1|DFS)") {
+            $timeoutSec = 90
         }
 
         if ($line -match "Ctrl\+C") {
@@ -509,11 +520,11 @@ if ($runMatrix -and (-not $StaOnly)) {
     Test-ApPresetConfig "TC-AP-M29" "2.4GHz WiFi 4 20M" 1 6 @("hw_mode=g", "ieee80211n=1")
 }
 
-# ----------------- PHASE 2: STA Policy Matrix (8 Policies) -----------------
+# ----------------- PHASE 2: STA Policy Matrix (11 Policies) -----------------
 if ($runMatrix -and (-not $ApOnly)) {
     Write-Host ""
     Write-Host "==========================================================================" -ForegroundColor Magenta
-    Write-Host ">> Phase 2: STA Band Lock & Protocol Cap Verification (8 Policies)" -ForegroundColor Magenta
+    Write-Host ">> Phase 2: STA Band Lock, Protocol Cap & Bandwidth Cap (11 Policies)" -ForegroundColor Magenta
     Write-Host "==========================================================================" -ForegroundColor Magenta
 
     # --- Band Lock (Option 11) ---
@@ -542,7 +553,7 @@ if ($runMatrix -and (-not $ApOnly)) {
 
     # --- Bandwidth Cap (Option 13) ---
     Write-Host "`n[STA Bandwidth Cap Policies]" -ForegroundColor Cyan
-    $supplicantSupportsHt40 = Exec-Adb "grep -a -q 'disable_ht40' /usr/sbin/wpa_supplicant && echo 1 || echo 0"
+    $supplicantSupportsHt40 = Exec-Adb "WPA_BIN=`$(which wpa_supplicant 2>/dev/null || which wpa_supplicant_s1g 2>/dev/null || echo /usr/sbin/wpa_supplicant); [ -f \"`$WPA_BIN\" ] && grep -a -q 'disable_ht40' \"`$WPA_BIN\" && echo 1 || echo 0"
     $opt2Input = if ($supplicantSupportsHt40.Trim() -eq "1") { @("13", "2") } else { @("13", "2", "y") }
     # Cap 20MHz: [13] -> [2] (-> y if unsupported prompt) -> disable_ht40=1
     Test-StaPolicyConfig "TC-STA-P10" "STA Bandwidth Cap: Force 20MHz" $opt2Input @("disable_ht40=1")
@@ -555,63 +566,69 @@ if ($runRf -and (-not $StaOnly)) {
     if ($RfAll) {
         Write-Host ""
         Write-Host "==========================================================================" -ForegroundColor Magenta
-        Write-Host ">> Phase 3 (Full 23 RF): All 23 AP Presets Live RF Verification (-RfAll)" -ForegroundColor Magenta
+        Write-Host ">> Phase 3 (Full 29 RF): All 29 AP Presets Live RF Verification (-RfAll)" -ForegroundColor Magenta
         Write-Host "==========================================================================" -ForegroundColor Magenta
 
-        # --- 6 GHz (Band 3: 7 presets) ---
+        # --- 6 GHz (Band 3: 9 presets) ---
         Write-Host "`n[6 GHz Live RF Broadcasts]" -ForegroundColor Cyan
         Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
         Run-ApRfTestCase -TcId "TC-RF-02" -Name "6GHz WiFi 7 160M RF TX" -BandKey 3 -PresetKey 2 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
         Run-ApRfTestCase -TcId "TC-RF-03" -Name "6GHz WiFi 7 80M RF TX"  -BandKey 3 -PresetKey 3 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-04" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 4 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-05" -Name "6GHz WiFi 6 80M RF TX"  -BandKey 3 -PresetKey 5 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 40M RF TX"  -BandKey 3 -PresetKey 6 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-07" -Name "6GHz WiFi 6 20M RF TX"  -BandKey 3 -PresetKey 7 -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-04" -Name "6GHz WiFi 7 40M RF TX"  -BandKey 3 -PresetKey 4 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-05" -Name "6GHz WiFi 7 20M RF TX"  -BandKey 3 -PresetKey 5 -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-07" -Name "6GHz WiFi 6 80M RF TX"  -BandKey 3 -PresetKey 7 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-08" -Name "6GHz WiFi 6 40M RF TX"  -BandKey 3 -PresetKey 8 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-09" -Name "6GHz WiFi 6 20M RF TX"  -BandKey 3 -PresetKey 9 -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
 
-        # --- 5 GHz (Band 2: 10 presets) ---
+        # --- 5 GHz (Band 2: 14 presets) ---
         Write-Host "`n[5 GHz Live RF Broadcasts]" -ForegroundColor Cyan
-        Run-ApRfTestCase -TcId "TC-RF-08" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-09" -Name "5GHz WiFi 7 80M RF TX"  -BandKey 2 -PresetKey 2 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 6 160M RF TX" -BandKey 2 -PresetKey 3 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-11" -Name "5GHz WiFi 6 80M RF TX"  -BandKey 2 -PresetKey 4 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-12" -Name "5GHz WiFi 6 40M RF TX"  -BandKey 2 -PresetKey 5 -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-13" -Name "5GHz WiFi 6 20M RF TX"  -BandKey 2 -PresetKey 6 -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-14" -Name "5GHz WiFi 5 80M RF TX"  -BandKey 2 -PresetKey 7 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-15" -Name "5GHz WiFi 5 40M RF TX"  -BandKey 2 -PresetKey 8 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-16" -Name "5GHz WiFi 4 40M RF TX"  -BandKey 2 -PresetKey 9 -ExpectedTuiMode "WiFi 4"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-17" -Name "5GHz WiFi 4 20M RF TX"  -BandKey 2 -PresetKey 10 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-11" -Name "5GHz WiFi 7 80M RF TX"  -BandKey 2 -PresetKey 2  -ExpectedTuiMode "80MHz"   -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-12" -Name "5GHz WiFi 7 40M RF TX"  -BandKey 2 -PresetKey 3  -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-13" -Name "5GHz WiFi 7 20M RF TX"  -BandKey 2 -PresetKey 4  -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-14" -Name "5GHz WiFi 6 160M RF TX" -BandKey 2 -PresetKey 5  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-15" -Name "5GHz WiFi 6 80M RF TX"  -BandKey 2 -PresetKey 6  -ExpectedTuiMode "80MHz"   -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-16" -Name "5GHz WiFi 6 40M RF TX"  -BandKey 2 -PresetKey 7  -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-17" -Name "5GHz WiFi 6 20M RF TX"  -BandKey 2 -PresetKey 8  -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-18" -Name "5GHz WiFi 5 160M RF TX" -BandKey 2 -PresetKey 9  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-19" -Name "5GHz WiFi 5 80M RF TX"  -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-20" -Name "5GHz WiFi 5 40M RF TX"  -BandKey 2 -PresetKey 11 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-21" -Name "5GHz WiFi 5 20M RF TX"  -BandKey 2 -PresetKey 12 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-22" -Name "5GHz WiFi 4 40M RF TX"  -BandKey 2 -PresetKey 13 -ExpectedTuiMode "WiFi 4"   -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-23" -Name "5GHz WiFi 4 20M RF TX"  -BandKey 2 -PresetKey 14 -ExpectedTuiMode "WiFi 4"   -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
 
         # --- 2.4 GHz (Band 1: 6 presets) ---
         Write-Host "`n[2.4 GHz Live RF Broadcasts]" -ForegroundColor Cyan
-        Run-ApRfTestCase -TcId "TC-RF-18" -Name "2.4GHz WiFi 7 40M RF TX" -BandKey 1 -PresetKey 1 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-19" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-20" -Name "2.4GHz WiFi 6 40M RF TX" -BandKey 1 -PresetKey 3 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-21" -Name "2.4GHz WiFi 6 20M RF TX" -BandKey 1 -PresetKey 4 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-22" -Name "2.4GHz WiFi 4 40M RF TX" -BandKey 1 -PresetKey 5 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-23" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-24" -Name "2.4GHz WiFi 7 40M RF TX" -BandKey 1 -PresetKey 1 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-25" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-26" -Name "2.4GHz WiFi 6 40M RF TX" -BandKey 1 -PresetKey 3 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-27" -Name "2.4GHz WiFi 6 20M RF TX" -BandKey 1 -PresetKey 4 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-28" -Name "2.4GHz WiFi 4 40M RF TX" -BandKey 1 -PresetKey 5 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
+        Run-ApRfTestCase -TcId "TC-RF-29" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
     } else {
         Write-Host ""
         Write-Host "==========================================================================" -ForegroundColor Magenta
         Write-Host ">> Phase 3: Hardware RF Closed-Loop Physical Verification (Core 6 Broadcasts)" -ForegroundColor Magenta
         Write-Host "==========================================================================" -ForegroundColor Magenta
 
-        # TC-RF-01: 6GHz WiFi 7 320M TX
+        # TC-RF-01: 6GHz WiFi 7 320M TX (Core)
         Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
 
-        # TC-RF-02: 6GHz WiFi 6 160M TX
-        Run-ApRfTestCase -TcId "TC-RF-02" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+        # TC-RF-06: 6GHz WiFi 6 160M TX (Core)
+        Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
 
-        # TC-RF-03: 5GHz WiFi 7 160M TX
-        Run-ApRfTestCase -TcId "TC-RF-03" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+        # TC-RF-10: 5GHz WiFi 7 160M TX (Core)
+        Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
 
-        # TC-RF-04: 5GHz WiFi 5 80M TX
-        Run-ApRfTestCase -TcId "TC-RF-04" -Name "5GHz WiFi 5 80M RF TX" -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+        # TC-RF-19: 5GHz WiFi 5 80M TX (Core)
+        Run-ApRfTestCase -TcId "TC-RF-19" -Name "5GHz WiFi 5 80M RF TX" -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
 
-        # TC-RF-05: 2.4GHz WiFi 7 20M TX
-        Run-ApRfTestCase -TcId "TC-RF-05" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        # TC-RF-25: 2.4GHz WiFi 7 20M TX (Core)
+        Run-ApRfTestCase -TcId "TC-RF-25" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
 
-        # TC-RF-06: 2.4GHz WiFi 4 20M TX
-        Run-ApRfTestCase -TcId "TC-RF-06" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        # TC-RF-29: 2.4GHz WiFi 4 20M TX (Core)
+        Run-ApRfTestCase -TcId "TC-RF-29" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
     }
 }
 

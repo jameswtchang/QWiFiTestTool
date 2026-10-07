@@ -114,11 +114,13 @@ func (k *KernelConfig) GetInterface() string {
 		}
 	}
 
-	// 2. Fallback to configured or default interface
-	if k.Interface == "" {
-		return "wlan0"
+	// 2. Fallback to configured interface
+	if k.Interface != "" {
+		return k.Interface
 	}
-	return k.Interface
+
+	// 3. Ultimate default
+	return "wlan0"
 }
 
 func findInterfaceByDriver(driverName string) string {
@@ -126,37 +128,54 @@ func findInterfaceByDriver(driverName string) string {
 	if err != nil {
 		return ""
 	}
+	var candidate string
 	for _, f := range files {
 		iface := f.Name()
-		if iface == "lo" || iface == "sit0" || strings.HasPrefix(iface, "eth") {
+		if iface == "lo" || iface == "sit0" || strings.HasPrefix(iface, "eth") ||
+			strings.HasPrefix(iface, "p2p") || strings.HasPrefix(iface, "wifi-aware") ||
+			strings.HasPrefix(iface, "mon") || strings.HasPrefix(iface, "apcli") {
 			continue
 		}
-		
+
+		matched := false
 		// Check /sys/class/net/<iface>/device/driver symlink
 		driverPath := filepath.Join("/sys/class/net", iface, "device", "driver")
 		target, err := os.Readlink(driverPath)
 		if err == nil {
 			targetBase := filepath.Base(target)
 			if targetBase == driverName || strings.ReplaceAll(targetBase, "-", "_") == driverName {
-				return iface
+				matched = true
 			}
 		}
 
 		// Also check /sys/class/net/<iface>/device/uevent for DRIVER=...
-		ueventPath := filepath.Join("/sys/class/net", iface, "device", "uevent")
-		if data, err := os.ReadFile(ueventPath); err == nil {
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "DRIVER=") {
-					val := strings.TrimPrefix(line, "DRIVER=")
-					if val == driverName || strings.ReplaceAll(val, "-", "_") == driverName {
-						return iface
+		if !matched {
+			ueventPath := filepath.Join("/sys/class/net", iface, "device", "uevent")
+			if data, err := os.ReadFile(ueventPath); err == nil {
+				lines := strings.Split(string(data), "\n")
+				for _, line := range lines {
+					if strings.HasPrefix(line, "DRIVER=") {
+						val := strings.TrimPrefix(line, "DRIVER=")
+						if val == driverName || strings.ReplaceAll(val, "-", "_") == driverName {
+							matched = true
+							break
+						}
 					}
 				}
 			}
 		}
+
+		if matched {
+			// Prefer wlanX over other matching interfaces
+			if strings.HasPrefix(iface, "wlan") {
+				return iface
+			}
+			if candidate == "" {
+				candidate = iface
+			}
+		}
 	}
-	return ""
+	return candidate
 }
 
 // GetDriverBackend returns the driver backend, defaulting to "nl80211" if empty

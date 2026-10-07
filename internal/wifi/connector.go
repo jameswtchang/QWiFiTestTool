@@ -345,7 +345,7 @@ func (c *Connector) startDaemon() error {
 		if errDetails == "" {
 			errDetails = "  process exited unexpectedly\n"
 		}
-		return fmt.Errorf(i18n.Tf("conn.daemon_early_exit", errDetails))
+		return fmt.Errorf("%s", i18n.Tf("conn.daemon_early_exit", errDetails))
 	case <-timer.C:
 		// Still running after 1 second, consider it healthy
 	}
@@ -702,6 +702,9 @@ func (c *Connector) Stop() error {
 
 	// 5. Cleanup socket files and logs
 	c.cleanupSocketFiles()
+	compatPath := filepath.Join(os.TempDir(), "wpa_supplicant_compat.conf")
+	_ = os.Remove(compatPath)
+	_ = os.Remove("/tmp/wpa_scan.conf")
 	if c.wpaLog != nil {
 		c.wpaLog.Close()
 		c.wpaLog = nil

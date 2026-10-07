@@ -872,13 +872,12 @@ func (e *APConfigEditor) generateHostapd() string {
 	}
 	sb.WriteString(fmt.Sprintf("channel=%d\n", primaryChannel))
 
-	// DFS check for 5GHz: requires country_code, ieee80211d=1, ieee80211h=1
+	// DFS check for 5GHz: requires ieee80211h=1 (and country_code/ieee80211d for non-Realtek drivers)
 	if isDFSChannel(e.params.Band, e.params.Channel, centerCh, e.params.Bandwidth) {
-		if !countryWritten {
+		if !countryWritten && !strings.Contains(e.module.Kernel.InsmodArgs, "rtw_country_code") {
 			sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
-		}
-		if e.params.Band == "sub-GHz" || strings.Contains(e.module.Kernel.InsmodArgs, "rtw_country_code") {
 			sb.WriteString("ieee80211d=1\n")
+			countryWritten = true
 		}
 		sb.WriteString("ieee80211h=1\n")
 	}
@@ -1058,7 +1057,7 @@ func (e *APConfigEditor) generateHostapd() string {
 				"wpa_pairwise": true, // rsn_pairwise is already set in security block
 				"ctrl_interface": true, "ctrl_interface_group": true,
 			}
-			if e.params.Band == "6G" || e.params.Band == "6g" {
+			if e.params.Band != "sub-GHz" {
 				skipKeys["op_class"] = true
 			}
 			if e.params.Security == "WPA3" {
@@ -1451,7 +1450,7 @@ func (e *APConfigEditor) applyProfileParams(configMap map[string]string) {
 		// daemon-level params that should not leak into generated config
 		"ctrl_interface": true, "ctrl_interface_group": true,
 	}
-	if e.params.Band == "6G" || e.params.Band == "6g" {
+	if e.params.Band != "sub-GHz" {
 		managedKeys["op_class"] = true
 	}
 

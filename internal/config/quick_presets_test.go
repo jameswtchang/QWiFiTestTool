@@ -16,6 +16,12 @@ func TestFilterPresets(t *testing.T) {
 		SupportWPA3:  true,
 	}
 
+	// Check overall presets count: 30 total (9 6G + 14 5G + 6 2.4G + 1 sub-GHz)
+	allPresets := getAllPresets()
+	if len(allPresets) != 30 {
+		t.Fatalf("Expected 30 total presets in getAllPresets(), got %d", len(allPresets))
+	}
+
 	p6g := filterPresets(fullCaps, "6G")
 	if len(p6g) != 9 {
 		t.Errorf("Expected 9 presets for full 6G, got %d", len(p6g))
@@ -24,8 +30,22 @@ func TestFilterPresets(t *testing.T) {
 		t.Errorf("Expected first preset to be be-320M, got %s-%dM", p6g[0].Mode, p6g[0].Bandwidth)
 	}
 
-	// Verify all new presets are present in 5G for fullCaps
 	p5gFull := filterPresets(fullCaps, "5G")
+	if len(p5gFull) != 14 {
+		t.Errorf("Expected 14 presets for full 5G, got %d", len(p5gFull))
+	}
+
+	p24gFull := filterPresets(fullCaps, "2.4G")
+	if len(p24gFull) != 6 {
+		t.Errorf("Expected 6 presets for full 2.4G, got %d", len(p24gFull))
+	}
+
+	triBandTotal := len(p6g) + len(p5gFull) + len(p24gFull)
+	if triBandTotal != 29 {
+		t.Fatalf("Expected 29 presets for tri-band (2.4G+5G+6G) module, got %d", triBandTotal)
+	}
+
+	// Verify all new presets are present in 5G for fullCaps
 	presetMap5G := make(map[string]bool)
 	for _, p := range p5gFull {
 		presetMap5G[p.Label] = true
@@ -420,6 +440,31 @@ func TestNewPresetsGenerateHostapd(t *testing.T) {
 	confFgh := eFgh.generateHostapd()
 	if !strings.Contains(confFgh, "op_class=70\n") {
 		t.Errorf("Sub-GHz FGH200M missing op_class=70 from FixedParams: %s", confFgh)
+	}
+
+	// 12. Non-sub-GHz (e.g. 5G/2.4G) should NOT leak op_class from FixedParams
+	moduleWithOpClass := &models.WiFiModule{
+		ID:          "test_wifi7_module",
+		DisplayName: "Test WiFi 7 Module",
+		Kernel: models.KernelConfig{
+			Interface:     "wlan0",
+			DriverBackend: "nl80211",
+		},
+		APConfig: models.APConfig{
+			FixedParams: []models.Param{
+				{Key: "op_class", Value: "137"},
+			},
+		},
+	}
+	e5gLeakCheck := &APConfigEditor{
+		module: moduleWithOpClass,
+		params: APEditorParams{
+			Band: "5G", Mode: "ax", Bandwidth: 80, Channel: 36, CountryCode: "US", SSID: "Test5G_NoOpClass", Security: "Open",
+		},
+	}
+	conf5gLeak := e5gLeakCheck.generateHostapd()
+	if strings.Contains(conf5gLeak, "op_class=") {
+		t.Errorf("5G hostapd config should NOT contain op_class, got:\n%s", conf5gLeak)
 	}
 }
 
