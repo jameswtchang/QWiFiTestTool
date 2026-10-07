@@ -416,6 +416,38 @@ func TestNewPresetsGenerateHostapd(t *testing.T) {
 		t.Errorf("5G UNII-3 ch149 80MHz should NOT have ieee80211h=1 (not DFS): %s", conf5gUnii3)
 	}
 
+	// 10b. Realtek (rtw_country_code) DFS: hostapd rejects ieee80211h=1 without ieee80211d=1 + country_code
+	rtwModule := &models.WiFiModule{
+		ID:          "test_rtw_module",
+		DisplayName: "Test Realtek Module",
+		Kernel: models.KernelConfig{
+			Interface:     "wlan0",
+			DriverBackend: "nl80211",
+			InsmodArgs:    "rtw_country_code=CN",
+		},
+	}
+	eRtwDfs := &APConfigEditor{
+		module: rtwModule,
+		params: APEditorParams{
+			Band: "5G", Mode: "ac", Bandwidth: 80, Channel: 52, CountryCode: "CN", SSID: "TestRtwDFS", Security: "Open",
+		},
+	}
+	confRtwDfs := eRtwDfs.generateHostapd()
+	for _, tok := range []string{"ieee80211h=1\n", "ieee80211d=1\n", "country_code=CN\n"} {
+		if strings.Count(confRtwDfs, tok) != 1 {
+			t.Errorf("Realtek DFS should contain exactly one %q, got:\n%s", tok, confRtwDfs)
+		}
+	}
+	eRtwNonDfs := &APConfigEditor{
+		module: rtwModule,
+		params: APEditorParams{
+			Band: "5G", Mode: "ac", Bandwidth: 80, Channel: 36, CountryCode: "CN", SSID: "TestRtwNonDFS", Security: "Open",
+		},
+	}
+	if confRtwNonDfs := eRtwNonDfs.generateHostapd(); strings.Contains(confRtwNonDfs, "country_code=") {
+		t.Errorf("Realtek non-DFS should leave regulatory to rtw_country_code, got:\n%s", confRtwNonDfs)
+	}
+
 	// 11. Sub-GHz (FGH200M) should preserve op_class from FixedParams (e.g. op_class=70)
 	fghModule := &models.WiFiModule{
 		ID:          "quectel_fgh200m",

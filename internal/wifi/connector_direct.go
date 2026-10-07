@@ -99,8 +99,6 @@ func (c *Connector) showConnectionInfoDirect() {
 
 	fmt.Println("\n" + ui.Blue + ui.Bold + "========== " + i18n.T("conn.info_title") + " ==========" + ui.Reset)
 
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.iface"), 16), iface)
-
 	// Wireless info via iw dev link or iwconfig
 	var ssid, bssid, freqStr, signalStr, txBitrate, rxBitrate string
 	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
@@ -145,48 +143,19 @@ func (c *Connector) showConnectionInfoDirect() {
 		}
 	}
 
-	if ssid != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), ssid)
-	}
-	if bssid != "" && bssid != "Not-Associated" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("BSSID:", 16), bssid)
-	}
-
 	// Channel info via iw dev info
-	var iwChannel, txPower string
+	var iwChannel string
 	if iwOut, err := exec.Command("iw", "dev", iface, "info").Output(); err == nil {
 		for _, line := range strings.Split(string(iwOut), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "channel ") {
 				iwChannel = line
-			} else if strings.HasPrefix(line, "txpower ") {
-				txPower = FormatTxPower(line)
 			}
 		}
 	}
 
 	chDisplay := c.resolveChannelDisplay(iface, iwChannel, freqStr)
-	if chDisplay != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
-	}
-
-	if signalStr != "" {
-		var signalDbm int
-		fmt.Sscanf(signalStr, "%d", &signalDbm)
-		quality := parseSignalQuality(fmt.Sprintf("%d", signalDbm))
-		sigColor := ui.Green
-		if signalDbm < -75 {
-			sigColor = ui.Red
-		} else if signalDbm < -65 {
-			sigColor = ui.Yellow
-		}
-		fmt.Printf(ui.Bold+"  %s "+sigColor+"%d dBm (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.signal"), 16), signalDbm, quality)
-	}
-
 	bitrateDisplay := c.resolveBitrateDisplay(iface, txBitrate, rxBitrate)
-	if bitrateDisplay != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
-	}
 
 	// IP info
 	var ipWithCidr, gatewayIP string
@@ -215,14 +184,49 @@ func (c *Connector) showConnectionInfoDirect() {
 		}
 	}
 
-	if ipWithCidr != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.ip"), 16), ipWithCidr)
+	// ==========================================
+	// Presentation / Printing
+	// ==========================================
+
+	// Group 1: Basic Status & Auth
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.iface"), 16), iface)
+	if ssid != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), ssid)
 	}
-	if gatewayIP != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.gateway"), 16), gatewayIP)
+	if bssid != "" && bssid != "Not-Associated" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("BSSID:", 16), bssid)
 	}
-	if txPower != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), txPower)
+
+	// Group 2: RF & Link Quality
+	fmt.Println()
+	if chDisplay != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
+	}
+	if bitrateDisplay != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
+	}
+	if signalStr != "" {
+		var signalDbm int
+		fmt.Sscanf(signalStr, "%d", &signalDbm)
+		quality := parseSignalQuality(fmt.Sprintf("%d", signalDbm))
+		sigColor := ui.Green
+		if signalDbm < -75 {
+			sigColor = ui.Red
+		} else if signalDbm < -65 {
+			sigColor = ui.Yellow
+		}
+		fmt.Printf(ui.Bold+"  %s "+sigColor+"%d dBm (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.signal"), 16), signalDbm, quality)
+	}
+
+	// Group 3: Network Layer (IP/Gateway)
+	if ipWithCidr != "" || gatewayIP != "" {
+		fmt.Println()
+		if ipWithCidr != "" {
+			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.ip"), 16), ipWithCidr)
+		}
+		if gatewayIP != "" {
+			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.gateway"), 16), gatewayIP)
+		}
 	}
 
 	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)

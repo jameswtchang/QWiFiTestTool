@@ -14,6 +14,10 @@
 ✅ **WiFi 7 & 6GHz 架構**: 完整支援 802.11be、320MHz 頻寬、6GHz 頻道與 PSC 中心頻道動態計算  
 ✅ **驅動後置命令 (PostLoadCmd)**: 支援 insmod 後自動執行自訂 shell 命令  
 ✅ **CJK 終端對齊**: 中英文混合標籤在終端機完美視覺對齊  
+✅ **STA 頻寬與協定抑制 (V1.11~V1.13)**: 支援 `disable_ht40` (強制 20MHz)、`disable_vht`、`disable_he`、`disable_eht` 及執行期相容性探測  
+✅ **DFS CAC 狀態機閉環 (V1.13)**: 5GHz 160M / DFS 頻道主動檢查 `hostapd_cli` (`state=ENABLED`) 與日誌事件，消除假 PASS  
+✅ **連線資訊結構化排版 (V1.13)**: STA/AP 模式依「基礎/認證」、「物理射頻」、「網路層」三層分組呈現，清晰專業  
+✅ **802.11ah HaLow (Sub-GHz)**: 原生支援 Quectel FGH200M 模組 AP/STA 與 Morse 硬體頻率速率解析  
 
 ## 目錄結構
 
@@ -31,6 +35,7 @@ QWifiTestTool/
 │   ├── wifi/                # WiFi 操作邏輯 (Hotspot/Connection)
 │   └── ui/                  # 終端使用者介面
 ├── docs/                    # 專案設計與架構文檔
+├── scripts/                 # 自動化端到端 (E2E) 測試套件 (e2e_wifi_test.ps1)
 └── .agent/workflows/        # 自動化工作流 (deploy/push/sync)
 ```
 
@@ -77,69 +82,42 @@ su
 1. **選擇模組**: 偵測系統環境並選擇對應的 WiFi 模組專案。
 2. **選擇操作**:
    - `[1]` 診斷 (Sanity Check) - 執行環境健康檢查。
-   - `[2]` 編輯 wpa_supplicant.conf - 修改站台連接配置。
-   - `[3]` Station 模式 - 掃描並連接 WiFi。
-   - `[4]` Hostapd/Dnsmasq 配置生成及修改 - **(NEW)** 互動式熱點參數配置。
-   - `[5]` AP 模式 (建立熱點) - 根據配置啟動 SoftAP。
+   - `[2]` 編輯 wpa_supplicant.conf - 修改站台連接配置（頻段鎖定、協定/頻寬上限）。
+   - `[3]` Station 模式 - 掃描並連接 WiFi，顯示三層結構化連線資訊。
+   - `[4]` Hostapd/Dnsmasq 配置生成及修改 - 互動式熱點參數配置與快速預設。
+   - `[5]` AP 模式 (建立熱點) - 根據配置啟動 SoftAP（含 DFS CAC 狀態機閉環）。
 
 ### 配置編輯器 [4] 
 
 支援從 `/etc/hostapd.conf` 自動載入現有配置，並提供以下互動式修改：
 
-- **⚡ 快速規格預設精靈 (V1.09)**: 一鍵動態過濾模組極限能力，自動完成頻段 (2.4G/5G/6G/Sub-GHz)、協定 (be/ax/ac/n) 與頻寬 (320M~20M) 的組合配置，免除繁瑣計算。
-- **國家碼 (TW/CN/US...)**: 自動聯動可選頻道。
+- **⚡ 快速規格預設精靈**: 一鍵動態過濾模組極限能力，自動完成頻段 (2.4G/5G/6G/Sub-GHz)、協定 (be/ax/ac/n) 與頻寬 (320M~20M) 的組合配置，免除繁瑣計算。
+- **國家碼 (TW/CN/US...)**: 自動聯動可選頻道與法規限制。
 - **動態中心頻道與 6GHz PSC**: 自動計算 HT40+/HT40-、VHT 中心頻道，以及 6GHz 的 PSC/Block 基準與 operating class (131-137)。
+- **Realtek 5GHz DFS 依賴修正 (V1.13)**: 針對 DFS 頻道強制補齊 `country_code` 與 `ieee80211d=1` 依賴鏈，杜絕 hostapd 啟動退出。
 - **即時預覽與儲存**: 即時生成 `hostapd.conf` 與 `dnsmasq.conf` 並儲存至系統路徑，支援唯讀檔案系統自動 remount rw。
 
 ### STA 模式 [2] 編輯 wpa_supplicant.conf
 
 支援進階測試用連線策略：
-- **頻段鎖定 (V1.09)**: 動態查表產生 `freq_list`，支援鎖定 6G、5G(含/排除DFS)、2.4G 頻段，且連線時自動篩選目標 AP。
-- **協定上限限制 (V1.09)**: 動態插入 `disable_eht` / `disable_he` / `disable_vht` 以測試向下相容性。
-- **政策保持**: 掃描連線後自動保留 `freq_list` 與 `disable_*` 設定，避免重新連線時策略遺失。
+- **頻段鎖定**: 動態查表產生 `freq_list`，支援鎖定 6G、5G(含/排除DFS)、2.4G 頻段，且連線時自動篩選目標 AP。
+- **協定上限限制**: 動態插入 `disable_eht` / `disable_he` / `disable_vht` 以測試向下相容性。
+- **頻寬上限限制 (V1.11~V1.13)**: 支援插入 `disable_ht40=1` 強制 20MHz 頻寬上限，結合 `wpa_cap` 執行期相容性探測防呆。
+- **政策保持**: 掃描連線後自動保留 `freq_list`、`disable_*` 設定，避免重新連線時策略遺失。
 
-### AP 模式 [5] (優化)
+### Station 模式連線資訊 [3] (V1.13 優化)
 
+連線成功後以三層結構化排版呈現連線詳情：
+- **基礎狀態與認證**: 連線狀態 (COMPLETED)、網卡介面、SSID、BSSID、安全加密 (如 WPA3-SAE / WPA2-PSK)。
+- **射頻與鏈路品質**: 頻段/頻道 (含頻寬與中心頻率)、連線速率 (PHY MCS)、接收訊號強度 (RSSI dBm 與品質評級)。
+- **網路層**: 配發之 IP 位址 (含子網路遮罩) 與預設閘道 IP。
+
+### AP 模式 [5] (V1.13 優化)
+
+- **DFS CAC 狀態機閉環 (V1.13)**: 啟用 5GHz 160MHz 或 DFS 頻道 (ch52~144) 時，自動執行 60 秒 CAC 監聽，透過 `hostapd_cli status` (`state=ENABLED`) 確保真正發射 Beacon 後才交棒進入就緒狀態。
+- **結構化 AP 資訊展示**: 清楚列出介面、驅動、國家碼、SSID、安全性、頻段/模式、實體發射頻道與 TxPower、閘道與 DHCP 範圍。
 - **無配置自動引導**: 缺少 AP 配置時直接引導進入 `APConfigEditor` 完成設定並生成配置。
-- **自動清理**: 退出 (Ctrl+C) 時自動執行 `killall` 並關閉 `wlan0` 介面。
-- **多層級配置**: 優先載入 `/etc/` 自訂配置，其次為系統配置與 XML 預設值。
-
-## 自訂模組配置 (XML v2)
-
-現在支援更詳細的結構化配置：
-
-```xml
-<Module id="quectel_fcs945r">
-    <DisplayName>Quectel FCS945R (RTL8733BS)</DisplayName>
-    <Kernel>
-        <KoName>8733bs.ko</KoName>
-        <Interface>wlan0</Interface>
-        <DriverBackend>nl80211</DriverBackend>
-    </Kernel>
-
-    <APConfig>
-        <Capabilities>
-            <Bands>2.4G,5G</Bands>
-            <Modes>n,ac,ax</Modes>
-            <MaxBandwidth>80</MaxBandwidth>
-            <SupportDFS>true</SupportDFS>
-            <SupportWPA3>true</SupportWPA3>
-        </Capabilities>
-        <APProfile>
-            <SSID>FCS945R_AP</SSID>
-            <Security>WPA2</Security>
-            <Band>2.4G</Band>
-            <Channel>6</Channel>
-        </APProfile>
-        <Network>
-            <GatewayIP>192.168.50.1</GatewayIP>
-            <Netmask>255.255.255.0</Netmask>
-            <DHCPRange>192.168.50.10,192.168.50.100</DHCPRange>
-            <DNSServer>8.8.8.8</DNSServer>
-        </Network>
-    </APConfig>
-</Module>
-```
+- **自動清理**: 退出 (Ctrl+C) 時自動執行 `killall` 並關閉網卡介面，確保環境乾淨。
 
 ## 支援模組
 
@@ -155,7 +133,7 @@ su
 | 8 | Quectel FC905A | RTL8189FS | 2.4G | WiFi 4 (b/g/n) | ✅ 已驗證 |
 | 9 | Quectel FGH200M | MM8108 | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
 | 10 | Quectel FME164Q | QCA2064 / QCA2066 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 11 | Quectel FME170Q-865 | QCA2076 / WCN7850 | 2.4G/5G/6G | WiFi 7 (be) 320M | ✅ 已驗證 |
+| 11 | Quectel FME170Q-865 | QCA2076 / WCN7850 | 2.4G/5G/6G | WiFi 7 (be) 320M | ✅ 已驗證 (29/29 AP 實測通過) |
 
 ## 技術細節
 
@@ -166,6 +144,6 @@ su
 
 ---
 
-**版本**: V1.10  
-**維護**: WiFi 驅動團隊 (Updated: 2026-09-17)
+**版本**: V1.13  
+**維護**: WiFi 驅動團隊 (Updated: 2026-10-07)
 

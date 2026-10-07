@@ -1,7 +1,7 @@
 # WiFi Band / Protocol / Bandwidth 矩陣關係與參數聯動簡報大綱 (v3 實戰升級版)
 
 > 本文檔統合整理自 [protocol_bandwidth_preset_design.md](file:///d:/QWiFiTestTool/QWifiTestTool/docs/protocol_bandwidth_preset_design.md)，並依據 hostapd / wpa_supplicant 2.11 上游源碼與 802.11-2020 / 802.11be 標準進行技術校正與補強。
-> 納入 **V1.11** 最新工程實作：STA 頻寬抑制 (`disable_ht40`)、執行期二進制相容性探測 (`wpa_cap`)、動態設定防護 (`sanitizeConfigForDaemon`) 與 6GHz PSC 反推映射機制。
+> 納入 **V1.13** 最新工程實作：STA 頻寬抑制 (`disable_ht40`)、執行期二進制相容性探測 (`wpa_cap`)、DFS CAC 狀態機閉環 (`dfsCACPending`)、Realtek 5GHz DFS 依賴修正、動態設定防護 (`sanitizeConfigForDaemon`) 與 6GHz PSC 反推映射機制。
 
 ---
 
@@ -206,8 +206,8 @@ PSC 信道:                                       [37]                [53]
 - **DFS 觸發條件（全頻寬覆蓋）**：
   - 當主信道落入 UNII-2A (52–64) 或 UNII-2C (100–144) 時，無論 20M/40M/80M/160M 均為 DFS 信道。
   - **跨界陷阱**：主信道選在 Non-DFS 的 ch36，若頻寬開 **160 MHz**，其聚合頻寬會橫跨至 ch52–64，同樣強制落入 DFS 規範！
-  - **必備配置**：必須注入 `country_code`、`ieee80211d=1` 與 `ieee80211h=1`（嚴禁注入不存在的 `country_ie_env` 避免崩潰）。缺少 `ieee80211h=1` 或 `country_code` 時 hostapd 狀態機直接報錯終止。
-  - **CAC 等待**：開機後需進行 Channel Availability Check（靜默雷達探測 $\ge 60$ 秒），期間不發射 Beacon。
+  - **必備配置**：必須注入 `country_code`、`ieee80211d=1` 與 `ieee80211h=1`（嚴禁注入不存在的 `country_ie_env` 避免崩潰）。缺少 `ieee80211h=1`、`ieee80211d=1` 或 `country_code` 時 hostapd 內部檢查直接報錯終止（Realtek 亦同，不可因驅動法規域而漏寫）。
+  - **CAC 狀態機閉環**：開機後需進行 Channel Availability Check（靜默雷達探測 $\ge 60$ 秒）。不可僅看網卡 `type AP`（CAC 期間已是 AP 模式但不發 Beacon），工具透過 `hostapd_cli status` (`state=ENABLED`) 或日誌 `DFS-CAC-COMPLETED success=1` 閉環判定。
 
 #### 3. 2.4 GHz 邊界、全頻段 WMM/CCMP 與 11ac 20M PHY 約束
 - **嚴禁 802.11ac**：2.4G 啟用 `ieee80211ac=1` 會在 VHT 能力檢查階段導致 interface 初始化失敗。

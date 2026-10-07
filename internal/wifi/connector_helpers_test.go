@@ -304,4 +304,3 @@ func TestFormatMorseBitrateDisplay(t *testing.T) {
 		t.Errorf("formatMorseBitrateDisplay() = %q, want %q", gotNoEmul, expectedNoEmul)
 	}
 }
-

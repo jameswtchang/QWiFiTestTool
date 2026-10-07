@@ -872,9 +872,12 @@ func (e *APConfigEditor) generateHostapd() string {
 	}
 	sb.WriteString(fmt.Sprintf("channel=%d\n", primaryChannel))
 
-	// DFS check for 5GHz: requires ieee80211h=1 (and country_code/ieee80211d for non-Realtek drivers)
+	// DFS check for 5GHz: hostapd_config_check() hard-requires
+	// ieee80211h=1 -> ieee80211d=1 -> country_code, otherwise hostapd refuses to start.
+	// Realtek (rtw_country_code) skips country_code above, so it must be written here;
+	// e.params.CountryCode is already synced from rtw_country_code, so no conflict with the driver.
 	if isDFSChannel(e.params.Band, e.params.Channel, centerCh, e.params.Bandwidth) {
-		if !countryWritten && !strings.Contains(e.module.Kernel.InsmodArgs, "rtw_country_code") {
+		if !countryWritten {
 			sb.WriteString(fmt.Sprintf("country_code=%s\n", e.params.CountryCode))
 			sb.WriteString("ieee80211d=1\n")
 			countryWritten = true

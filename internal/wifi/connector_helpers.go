@@ -119,108 +119,37 @@ func (c *Connector) showConnectionInfo() {
 		}
 	}
 
+	// ==========================================
+	// Data Collection
+	// ==========================================
+
 	// 2. Interface
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.iface"), 16), iface)
+	// iface is already defined above
 
-	// 3. SSID
+	// 3. SSID & BSSID
 	ssid := statusMap["ssid"]
-	if ssid != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), ssid)
+	bssid := statusMap["bssid"]
+
+	// 4. Connection State
+	state := statusMap["wpa_state"]
+	stateDisplay := state
+	stateColor := ui.Yellow
+	switch state {
+	case "COMPLETED":
+		stateDisplay = i18n.T("conn.status_completed")
+		stateColor = ui.Green
+	case "DISCONNECTED":
+		stateDisplay = i18n.T("conn.status_disconnected")
+		stateColor = ui.Red
+	case "SCANNING":
+		stateDisplay = i18n.T("conn.status_scanning")
+	case "ASSOCIATING":
+		stateDisplay = i18n.T("conn.status_associating")
+	case "4WAY_HANDSHAKE":
+		stateDisplay = i18n.T("conn.status_handshake")
 	}
 
-	// 4. BSSID
-	if bssid := statusMap["bssid"]; bssid != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("BSSID:", 16), bssid)
-	}
-
-	// 5. Connection State
-	if state := statusMap["wpa_state"]; state != "" {
-		stateDisplay := state
-		stateColor := ui.Yellow
-		switch state {
-		case "COMPLETED":
-			stateDisplay = i18n.T("conn.status_completed")
-			stateColor = ui.Green
-		case "DISCONNECTED":
-			stateDisplay = i18n.T("conn.status_disconnected")
-			stateColor = ui.Red
-		case "SCANNING":
-			stateDisplay = i18n.T("conn.status_scanning")
-		case "ASSOCIATING":
-			stateDisplay = i18n.T("conn.status_associating")
-		case "4WAY_HANDSHAKE":
-			stateDisplay = i18n.T("conn.status_handshake")
-		}
-		fmt.Printf(ui.Bold+"  %s "+stateColor+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.status"), 16), stateDisplay)
-	}
-
-	// 6. Channel / Band info & TxPower from 'iw dev <iface> info'
-	var iwChannel, txPower string
-	if iwOut, err := exec.Command("iw", "dev", iface, "info").Output(); err == nil {
-		for _, line := range strings.Split(string(iwOut), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "channel ") {
-				iwChannel = line
-			} else if strings.HasPrefix(line, "txpower ") {
-				txPower = FormatTxPower(line)
-			}
-		}
-	}
-
-	chDisplay := c.resolveChannelDisplay(iface, iwChannel, statusMap["freq"])
-	if chDisplay != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
-	}
-
-	// 7. Signal & Bitrate from 'iw dev <iface> link' (fallback to wpa_cli signal_poll)
-	var signalStr, txBitrate, rxBitrate string
-	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
-		for _, line := range strings.Split(string(linkOut), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "signal: ") {
-				signalStr = strings.TrimPrefix(line, "signal: ")
-			} else if strings.HasPrefix(line, "tx bitrate: ") {
-				txBitrate = strings.TrimPrefix(line, "tx bitrate: ")
-			} else if strings.HasPrefix(line, "rx bitrate: ") {
-				rxBitrate = strings.TrimPrefix(line, "rx bitrate: ")
-			}
-		}
-	}
-
-	if signalStr == "" || (txBitrate == "" && rxBitrate == "") {
-		if pollOut, err := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "signal_poll").Output(); err == nil {
-			for _, line := range strings.Split(string(pollOut), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "RSSI=") && signalStr == "" {
-					signalStr = strings.TrimPrefix(line, "RSSI=") + " dBm"
-				} else if strings.HasPrefix(line, "LINKSPEED=") && txBitrate == "" {
-					txBitrate = strings.TrimPrefix(line, "LINKSPEED=") + " Mbps"
-				}
-			}
-		}
-	}
-
-	// Print Signal
-	if signalStr != "" {
-		var signalDbm int
-		fmt.Sscanf(signalStr, "%d", &signalDbm)
-		quality := parseSignalQuality(fmt.Sprintf("%d", signalDbm))
-		sigColor := ui.Green
-		if signalDbm < -75 {
-			sigColor = ui.Red
-		} else if signalDbm < -65 {
-			sigColor = ui.Yellow
-		}
-		fmt.Printf(ui.Bold+"  %s "+sigColor+"%d dBm (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.signal"), 16), signalDbm, quality)
-	}
-
-	// Print Bitrate
-	bitrateDisplay := c.resolveBitrateDisplay(iface, txBitrate, rxBitrate)
-	if bitrateDisplay != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
-	}
-
-	// 8. Security
+	// 5. Security
 	keyMgmt := statusMap["key_mgmt"]
 	pairwise := statusMap["pairwise_cipher"]
 	security := ""
@@ -238,11 +167,48 @@ func (c *Connector) showConnectionInfo() {
 	if security != "" && pairwise != "" && security != i18n.T("hotspot.open_network") {
 		security = fmt.Sprintf("%s (%s)", security, pairwise)
 	}
-	if security != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.security"), 16), security)
-	}
 
-	// 9. IP Address & Default Gateway
+	// 6. Channel / Band info
+	var iwChannel string
+	if iwOut, err := exec.Command("iw", "dev", iface, "info").Output(); err == nil {
+		for _, line := range strings.Split(string(iwOut), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "channel ") {
+				iwChannel = line
+			}
+		}
+	}
+	chDisplay := c.resolveChannelDisplay(iface, iwChannel, statusMap["freq"])
+
+	// 7. Signal & Bitrate
+	var signalStr, txBitrate, rxBitrate string
+	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
+		for _, line := range strings.Split(string(linkOut), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "signal: ") {
+				signalStr = strings.TrimPrefix(line, "signal: ")
+			} else if strings.HasPrefix(line, "tx bitrate: ") {
+				txBitrate = strings.TrimPrefix(line, "tx bitrate: ")
+			} else if strings.HasPrefix(line, "rx bitrate: ") {
+				rxBitrate = strings.TrimPrefix(line, "rx bitrate: ")
+			}
+		}
+	}
+	if signalStr == "" || (txBitrate == "" && rxBitrate == "") {
+		if pollOut, err := exec.Command(c.wpaCliPath, "-p", c.ctrlInterface, "-i", iface, "signal_poll").Output(); err == nil {
+			for _, line := range strings.Split(string(pollOut), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "RSSI=") && signalStr == "" {
+					signalStr = strings.TrimPrefix(line, "RSSI=") + " dBm"
+				} else if strings.HasPrefix(line, "LINKSPEED=") && txBitrate == "" {
+					txBitrate = strings.TrimPrefix(line, "LINKSPEED=") + " Mbps"
+				}
+			}
+		}
+	}
+	bitrateDisplay := c.resolveBitrateDisplay(iface, txBitrate, rxBitrate)
+
+	// 8. IP Address & Gateway
 	var ipWithCidr, gatewayIP string
 	if ipOut, err := exec.Command("ip", "-4", "addr", "show", iface).Output(); err == nil {
 		for _, line := range strings.Split(string(ipOut), "\n") {
@@ -259,7 +225,6 @@ func (c *Connector) showConnectionInfo() {
 	if ipWithCidr == "" && statusMap["ip_address"] != "" {
 		ipWithCidr = statusMap["ip_address"]
 	}
-
 	if routeOut, err := exec.Command("ip", "route", "show", "dev", iface).Output(); err == nil {
 		for _, line := range strings.Split(string(routeOut), "\n") {
 			line = strings.TrimSpace(line)
@@ -273,17 +238,57 @@ func (c *Connector) showConnectionInfo() {
 		}
 	}
 
-	if ipWithCidr != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.ip"), 16), ipWithCidr)
+	// ==========================================
+	// Presentation / Printing
+	// ==========================================
+
+	// Group 1: Basic Status & Auth
+	if state != "" {
+		fmt.Printf(ui.Bold+"  %s "+stateColor+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.status"), 16), stateDisplay)
 	}
-	if gatewayIP != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.gateway"), 16), gatewayIP)
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.iface"), 16), iface)
+	if ssid != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), ssid)
+	}
+	if bssid != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("BSSID:", 16), bssid)
+	}
+	if security != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.security"), 16), security)
 	}
 
-	// 10. TxPower
-	if txPower != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("iw.txpower"), 16), txPower)
+	// Group 2: RF & Link Quality
+	fmt.Println()
+	if chDisplay != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.band_channel"), 16), chDisplay)
 	}
+	if bitrateDisplay != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.bitrate"), 16), bitrateDisplay)
+	}
+	if signalStr != "" {
+		var signalDbm int
+		fmt.Sscanf(signalStr, "%d", &signalDbm)
+		quality := parseSignalQuality(fmt.Sprintf("%d", signalDbm))
+		sigColor := ui.Green
+		if signalDbm < -75 {
+			sigColor = ui.Red
+		} else if signalDbm < -65 {
+			sigColor = ui.Yellow
+		}
+		fmt.Printf(ui.Bold+"  %s "+sigColor+"%d dBm (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.signal"), 16), signalDbm, quality)
+	}
+
+	// Group 3: Network Layer (IP/Gateway)
+	if ipWithCidr != "" || gatewayIP != "" {
+		fmt.Println()
+		if ipWithCidr != "" {
+			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.ip"), 16), ipWithCidr)
+		}
+		if gatewayIP != "" {
+			fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("conn.label.gateway"), 16), gatewayIP)
+		}
+	}
+
 
 	fmt.Println(ui.Blue + ui.Bold + "==============================" + ui.Reset)
 }

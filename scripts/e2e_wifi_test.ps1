@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$MatrixOnly,
     [switch]$RfOnly,
     [switch]$RfAll,
@@ -319,10 +319,10 @@ function Run-ApRfTestCase {
     $startTime = [System.DateTime]::Now
 
     # Use ReadLineAsync to avoid infinite blocking when TUI stops outputting
-    # DFS CAC requires 60 seconds. Extend timeout for 5GHz 160M presets or when CAC is active.
+    # DFS CAC requires 60 seconds. Go side waits up to 75s after hostapd start, plus driver load / IP setup.
     $timeoutSec = 35
     if ($BandKey -eq 2 -and ($PresetKey -eq 1 -or $PresetKey -eq 5 -or $PresetKey -eq 9)) {
-        $timeoutSec = 90
+        $timeoutSec = 120
     }
 
     $readTask = $proc.StandardOutput.ReadLineAsync()
@@ -339,7 +339,7 @@ function Run-ApRfTestCase {
 
         # Dynamically extend timeout if DFS CAC is detected in output
         if ($trimmed -match "(CAC.*60|ieee80211h=1|DFS)") {
-            $timeoutSec = 90
+            $timeoutSec = 120
         }
 
         if ($line -match "Ctrl\+C") {
@@ -347,7 +347,7 @@ function Run-ApRfTestCase {
             break
         }
 
-        if ($line -match "(\[ERROR\] AP 啟動失敗|Could not initialize interface|AP 啟動逾時)") {
+        if ($line -match "(\[ERROR\] AP 啟動失敗|Could not initialize interface|AP 啟動逾時|hostapd 啟動失敗|hostapd failed to start|Morse 驅動失敗|網路介面 \S+ 未出現|Channelization Scheme 不符)") {
             $apReady = $false
             break
         }
@@ -553,7 +553,7 @@ if ($runMatrix -and (-not $ApOnly)) {
 
     # --- Bandwidth Cap (Option 13) ---
     Write-Host "`n[STA Bandwidth Cap Policies]" -ForegroundColor Cyan
-    $supplicantSupportsHt40 = Exec-Adb "WPA_BIN=`$(which wpa_supplicant 2>/dev/null || which wpa_supplicant_s1g 2>/dev/null || echo /usr/sbin/wpa_supplicant); [ -f \"`$WPA_BIN\" ] && grep -a -q 'disable_ht40' \"`$WPA_BIN\" && echo 1 || echo 0"
+    $supplicantSupportsHt40 = Exec-Adb 'W=$(which wpa_supplicant 2>/dev/null || which wpa_supplicant_s1g 2>/dev/null || echo /usr/sbin/wpa_supplicant); grep -a -q disable_ht40 $W 2>/dev/null && echo 1 || echo 0'
     $opt2Input = if ($supplicantSupportsHt40.Trim() -eq "1") { @("13", "2") } else { @("13", "2", "y") }
     # Cap 20MHz: [13] -> [2] (-> y if unsupported prompt) -> disable_ht40=1
     Test-StaPolicyConfig "TC-STA-P10" "STA Bandwidth Cap: Force 20MHz" $opt2Input @("disable_ht40=1")

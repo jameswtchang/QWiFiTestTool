@@ -219,7 +219,9 @@ func (h *Hotspot) startServices() error {
 	isPCIe := strings.Contains(h.module.Kernel.PreloadKo, "pcie") || strings.Contains(h.module.Kernel.PreloadKo, "cnss")
 	apReady := false
 	maxWait := 15
+	isDFS := false
 	if data, err := os.ReadFile(h.hostapdConfig); err == nil && strings.Contains(string(data), "ieee80211h=1") {
+		isDFS = true
 		maxWait = 75 // CAC 60s + buffer for DFS channels
 		fmt.Println(ui.Yellow + "[INFO] 偵測到 DFS 頻道 (ieee80211h=1)，正在等待 CAC 頻道可用性檢查 (~60秒)..." + ui.Reset)
 	}
@@ -235,6 +237,11 @@ func (h *Hotspot) startServices() error {
 		}
 		// For PCIe modules, also wait until txpower is non-zero
 		if isPCIe && strings.Contains(outStr, "txpower 0.00 dBm") {
+			continue
+		}
+		// During CAC the netdev is already "type AP" but not beaconing yet.
+		// Gate on hostapd's own state machine instead of nl80211 iftype.
+		if isDFS && h.dfsCACPending(hostapdLog, i) {
 			continue
 		}
 		apReady = true
@@ -489,6 +496,68 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 	return nil
 }
 
+// dfsCACPending reports whether hostapd is still in DFS Channel Availability Check.
+// Source of truth, in order:
+//  1. hostapd_cli status -> state=ENABLED / DFS (sibling of hostapdPath first, e.g. hostapd_s1g -> hostapd_cli_s1g)
+//  2. hostapd log events (DFS-CAC-START without AP-ENABLED / DFS-CAC-COMPLETED)
+//
+// hostapd stdout is a pipe (fully buffered stdio), so completion events may lag;
+// the log fallback is only trusted for the first 70s to avoid a false timeout.
+func (h *Hotspot) dfsCACPending(logPath string, elapsedSec int) bool {
+	iface := h.module.Kernel.GetInterface()
+
+	ctrlDir := ""
+	if data, err := os.ReadFile(h.hostapdConfig); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "ctrl_interface=") {
+				ctrlDir = strings.TrimPrefix(line, "ctrl_interface=")
+				ctrlDir = strings.TrimPrefix(ctrlDir, "DIR=")
+				if idx := strings.Index(ctrlDir, " "); idx > 0 {
+					ctrlDir = ctrlDir[:idx]
+				}
+				break
+			}
+		}
+	}
+
+	cliPath := ""
+	if h.hostapdPath != "" {
+		base := filepath.Base(h.hostapdPath)
+		sibling := filepath.Join(filepath.Dir(h.hostapdPath), strings.Replace(base, "hostapd", "hostapd_cli", 1))
+		if st, err := os.Stat(sibling); err == nil && !st.IsDir() {
+			cliPath = sibling
+		}
+	}
+	if cliPath == "" {
+		cliPath = sys.FindCommandOrEmpty("hostapd_cli")
+	}
+
+	if cliPath != "" && ctrlDir != "" {
+		if out, err := exec.Command(cliPath, "-p", ctrlDir, "-i", iface, "status").Output(); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "state=") {
+					return strings.TrimPrefix(line, "state=") != "ENABLED"
+				}
+			}
+		}
+	}
+
+	if elapsedSec >= 70 {
+		return false
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return false
+	}
+	logStr := string(data)
+	if !strings.Contains(logStr, "DFS-CAC-START") {
+		return false
+	}
+	return !strings.Contains(logStr, "AP-ENABLED") && !strings.Contains(logStr, "DFS-CAC-COMPLETED success=1")
+}
+
 // startHostapd starts the hostapd daemon
 func (h *Hotspot) startHostapd(logPath string) error {
 	tw, err := logger.NewTimestampWriter(logPath)
@@ -568,9 +637,7 @@ func (h *Hotspot) showAPInfo() {
 		}
 	}
 
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.iface"), 16), configMap["interface"])
-	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.driver"), 16), configMap["driver"])
-	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), configMap["ssid"])
+
 
 	channel := configMap["channel"]
 	band := "2.4GHz"
@@ -645,12 +712,6 @@ func (h *Hotspot) showAPInfo() {
 		chDisplay = fmt.Sprintf("Center: %s, Primary: %s", centerCh, channel)
 	}
 
-	if modeStr != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band_mode"), 16), band, modeStr, chDisplay)
-	} else {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band"), 16), band, chDisplay)
-	}
-
 	security := i18n.T("hotspot.open_network")
 	if configMap["wpa"] == "2" || configMap["wpa"] == "3" {
 		keyMgmt := configMap["wpa_key_mgmt"]
@@ -666,11 +727,6 @@ func (h *Hotspot) showAPInfo() {
 			security = fmt.Sprintf("WPA2-PSK (%s)", pairwise)
 		}
 	}
-	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.security"), 16), security)
-
-	if configMap["country_code"] != "" {
-		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.country"), 16), configMap["country_code"])
-	}
 
 	// Read DHCP info from dnsmasq.conf
 	gateway := "N/A"
@@ -685,11 +741,37 @@ func (h *Hotspot) showAPInfo() {
 			}
 		}
 	}
+
+	// ==========================================
+	// Presentation / Printing
+	// ==========================================
+
+	// Group 1: Basic & System
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.iface"), 16), configMap["interface"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.driver"), 16), configMap["driver"])
+	
+	if configMap["country_code"] != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.country"), 16), configMap["country_code"])
+	}
+
+	fmt.Printf(ui.Bold+"  %s "+ui.Cyan+"%s"+ui.Reset+"\n", ui.AlignLabel("SSID:", 16), configMap["ssid"])
+	fmt.Printf(ui.Bold+"  %s "+ui.Yellow+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.security"), 16), security)
+
+	// Group 2: RF & PHY
+	fmt.Println()
+	if modeStr != "" {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s [%s] (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band_mode"), 16), band, modeStr, chDisplay)
+	} else {
+		fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s (%s)"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.band"), 16), band, chDisplay)
+	}
+	
+	// Show iw interface details (Channel, TxPower)
+	ShowInterfaceDetail(h.module.Kernel.GetInterface())
+
+	// Group 3: Network (IP/DHCP)
+	fmt.Println()
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel(i18n.T("hotspot.label.gateway"), 16), gateway)
 	fmt.Printf(ui.Bold+"  %s "+ui.Green+"%s"+ui.Reset+"\n", ui.AlignLabel("DHCP:", 16), dhcpRange)
-
-	// Show iw interface details
-	ShowInterfaceDetail(h.module.Kernel.GetInterface())
 
 	fmt.Println(ui.Blue + ui.Bold + "==================================" + ui.Reset)
 }

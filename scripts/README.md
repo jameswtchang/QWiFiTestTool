@@ -237,3 +237,25 @@ Policy verified + RF Scan: 0 BSS (inconclusive, cannot verify band boundary)
 
 Phase 3 AP 射頻測試使用 `ReadLineAsync()` + `.Wait(1000ms)` 取代同步 `ReadLine()`。
 當 TUI 停止輸出時，30 秒 timeout 迴圈正確觸發超時並報 FAIL，避免腳本永久掛起。
+
+---
+
+## 7. V1.13 穩健性與架構改進
+
+### 7.1 DFS 頻道可用性檢查 (CAC) 狀態機閉環
+在 5GHz 160MHz 或 DFS 頻道 (ch52~144) 啟動 AP 時，內核與法規要求執行 60 秒 CAC 掃描。
+- **問題**：CAC 期間 `iw dev wlan0 info` 已切換為 `type AP`（尚未廣播 Beacon），舊版在第 1 秒即判定成功，導致 75 秒 CAC 等待無效並產生假 PASS。
+- **閉環機制**：
+  1. 優先使用 `hostapd_cli status` 檢查 `state=ENABLED`。
+  2. 若無 CLI 則解析 hostapd 內部日誌，監聽 `DFS-CAC-START`、`DFS-CAC-COMPLETED success=1` 與 `AP-ENABLED` 事件，確保真實發射 Beacon 後才回報 AP Ready。
+  3. `e2e_wifi_test.ps1` 針對 5GHz 160M 測試案例自動動態擴展超時至 120 秒，避免 CAC 等待超時。
+
+### 7.2 Realtek 模組 5GHz DFS 依賴修復
+hostapd 內部邏輯強制要求：若宣告 `ieee80211h=1`，必須同時宣告 `ieee80211d=1` 與 `country_code`，否則 hostapd 直接退出。
+- Realtek 驅動（如 RTL8852BE）由模組參數 `rtw_country_code` 處理法規域，原程式碼略過寫入 `country_code`，導致 DFS 頻道必定啟動失敗。
+- V1.13 在 DFS 頻道強制補齊 `country_code` 與 `ieee80211d=1`，確保各廠牌晶片 DFS 規格全相容。
+
+### 7.3 PowerShell 5.1 指令跳脫與 UTF-8 BOM 編碼修復
+- **`disable_ht40` 指令探測**：修正 PS 5.1 雙引號傳遞截斷問題，改為單引號傳送，避免 STA 頻寬上限測試產生誤發輸入。
+- **UTF-8 with BOM 編碼**：確保在不同語系 Windows PowerShell 5.1 環境中，正則匹配字串不發生編碼錯亂。
+- **全量 29 組 AP 實測**：使用 `-RfAll` 在 Qualcomm FME170Q-865 實測達成 **29 / 29 PASS (100%)**。

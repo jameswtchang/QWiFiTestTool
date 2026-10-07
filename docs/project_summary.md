@@ -187,8 +187,38 @@
 ## 8. 核心組件：Channel Lookup 國家頻段檢索庫全面測試與驗證
 
 ### 測試覆蓋範圍 (`internal/models/channel_lookup_test.go`)
-* **跨國多頻寬矩陣驗證**：針對 US、CN、TW、JP 等主流國家，在 2.4G/5G/6G 各頻寬（20M, 40M, 80M, 160M, 320M）進行可用信道查詢與合法性檢驗。
+* **跨國多頻寬矩陣驗證**：針對 US、CN、TW、JP 等主流國家，在 2.4G/5G/6G 各頻寬（20M, 40M, 80M, 320M）進行可用信道查詢與合法性檢驗。
 * **AP 類型退避測試**：驗證 `室内型AP`、`室外型AP` 與 `所有类型AP` 的法規信道差異（如 JP 室外限制 W56、CN 室外僅 149、TW 6G 320M 僅中心頻道 31）。
 * **格式解析邊界測試**：涵蓋連號範圍（`1-13`）、離散列表（`36, 40, 44`）、混合字串、空值及連字號（`-`）容錯處理。
 * **執行結果**：全數通過單元測試 (`go test -v ./internal/models`)。
+
+---
+
+## 9. 最新更新 (2026-10-07) — V1.13 (DFS CAC 狀態機閉環、Realtek 5GHz DFS 依賴修正、全量 29 組 AP 實體射頻測試與測試端健壯化)
+
+### DFS 頻道可用性檢查 (CAC) 狀態機閉環
+* **背景**：5GHz 160MHz 或 DFS 頻道啟動時，內核與法規要求進行 60 秒 CAC 掃描。先前版本僅依賴 `iw dev <iface> info` 的 `type AP` 判定，但 CAC 期間介面類型早已切換為 `type AP`（尚未廣播 Beacon），導致 75 秒超時形同虛設並產生假 PASS。
+* **閉環實現** (`internal/wifi/hotspot.go`)：
+  * 新增 `dfsCACPending()` 檢驗機制，優先透過 `hostapd_cli status` 查詢 `state=ENABLED`。
+  * 若無 CLI 工具則解析 hostapd 內部日誌，監聽 `DFS-CAC-START`、`DFS-CAC-COMPLETED success=1` 與 `AP-ENABLED` 事件，確保 CAC 60 秒徹底完成並正式發射 Beacon 後才交棒進入就緒狀態。
+
+### Realtek 模組 5GHz DFS 依賴修正
+* **修復** (`internal/config/ap_config_editor.go`)：
+  * hostapd 配置檢驗強烈要求 `ieee80211h=1` 必須伴隨 `ieee80211d=1` 與 `country_code`，否則直接退出。
+  * 修正前 Realtek 因由驅動處理法規域而略過 `country_code`，造成 DFS 頻道 hostapd 無法啟動。現在針對 DFS 頻道一律補齊該依賴鏈，並由單元測試（TestNewPresetsGenerateHostapd / 10b）鎖定防護。
+
+### E2E 自動化測試套件健壯化與全量 29 組 AP 射頻驗證
+* **修復** (`scripts/e2e_wifi_test.ps1`)：
+  * 修復 PowerShell 5.1 雙引號字串截斷導致 STA `disable_ht40` 相容性探測永為 0 的問題。
+  * 修正 UTF-8 with BOM 編碼，解決 Windows PowerShell 中文正則比對失敗。
+  * 動態擴展 DFS CAC 測試超時為 120 秒，並收窄錯誤訊息正則匹配。
+* **實測成果**：
+  * 在 Qualcomm FME170Q-865 實體板端執行全量 29 組 AP 實體射頻測試 (`-RfAll`)，達成 **29 / 29 PASS (100% 通過率)**。
+
+### STA / AP 連線資訊結構化排版重構 (UI Visual Hierarchy)
+* **重構** (`internal/wifi/connector_helpers.go`, `connector_direct.go`, `hotspot.go`)：
+  * **三層視覺架構**：將平鋪混亂的終端輸出重整為「基礎狀態與認證 (Basic/Auth)」、「射頻與鏈路品質 (RF/PHY)」、「網路層 (Network)」三組結構化區塊。
+  * **STA 聚焦下行指標**：STA 模式下行依賴 RSSI（dBm 及優良評級）與物理調變速率（Bitrate/MCS），去除無效且易混淆的發射功率 (TxPower)。
+  * **AP 資訊純淨化**：移除 AP 啟動後舊有的冗餘重複行（介面/驅動/SSID），將實體射頻頻道、頻寬（含 6GHz 320M 識別）與硬體 TxPower 整合至 RF 群組統一輸出。
+
 
