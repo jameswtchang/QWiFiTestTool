@@ -23,13 +23,21 @@ type DiagnosisResult struct {
 	RFKillInfo      string
 	KernelLogs      []string
 	Errors          []string
+	ParamMismatch   bool
+	MismatchDetails []string
 }
 
 // RunDiagnosis performs pre-flight sanity checks on the WiFi module
 func RunDiagnosis(module *models.WiFiModule) *DiagnosisResult {
 	result := &DiagnosisResult{
-		KernelLogs: make([]string, 0),
-		Errors:     make([]string, 0),
+		KernelLogs:      make([]string, 0),
+		Errors:          make([]string, 0),
+		MismatchDetails: make([]string, 0),
+	}
+
+	if module == nil {
+		result.Errors = append(result.Errors, "WiFi module is not specified")
+		return result
 	}
 
 	iface := module.Kernel.GetInterface()
@@ -37,14 +45,14 @@ func RunDiagnosis(module *models.WiFiModule) *DiagnosisResult {
 	// Check 1: Interface existence
 	result.checkInterface(iface)
 
-	// Check 2: Driver status
-	result.checkDriver(module.Kernel.KoName)
+	// Check 2: Driver status (checks both main driver and prerequisite PreloadKo modules)
+	result.checkDrivers(module)
 
 	// Check 3: RFKill status
 	result.checkRFKill()
 
-	// Check 4: Kernel logs
-	result.fetchKernelLogs(module.Kernel.KoName)
+	// Check 4: Kernel logs (retrieves logs for main and prerequisite drivers)
+	result.fetchKernelLogs(module)
 
 	return result
 }
@@ -70,8 +78,14 @@ func (dr *DiagnosisResult) checkInterface(iface string) {
 	}
 }
 
-// checkDriver verifies if the kernel module is loaded
-func (dr *DiagnosisResult) checkDriver(koName string) {
+// normalizeModuleName removes .ko suffix and converts hyphens to underscores for kernel module matching
+func normalizeModuleName(koName string) string {
+	name := strings.TrimSuffix(filepath.Base(koName), ".ko")
+	return strings.ReplaceAll(name, "-", "_")
+}
+
+// checkDrivers verifies if the main driver and prerequisite preload drivers are loaded and checks parameters
+func (dr *DiagnosisResult) checkDrivers(module *models.WiFiModule) {
 	// Read /proc/modules
 	data, err := os.ReadFile("/proc/modules")
 	if err != nil {
@@ -81,24 +95,82 @@ func (dr *DiagnosisResult) checkDriver(koName string) {
 		return
 	}
 
-	// Extract module name (remove .ko extension) and normalize hyphens to underscores
-	// (kernel converts hyphens to underscores in /proc/modules)
-	moduleName := strings.ReplaceAll(strings.TrimSuffix(koName, ".ko"), "-", "_")
-
-	// Exact match: /proc/modules lines start with "module_name SIZE ..."
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	loadedModules := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) >= 1 && fields[0] == moduleName {
-			dr.DriverLoaded = true
-			dr.DriverInfo = strings.TrimSpace(line)
-			return
+		if len(fields) >= 1 {
+			loadedModules[fields[0]] = strings.TrimSpace(line)
 		}
 	}
 
-	dr.DriverLoaded = false
-	dr.DriverInfo = fmt.Sprintf("Module %s not loaded", moduleName)
-	dr.Errors = append(dr.Errors, fmt.Sprintf("Driver %s is not loaded", moduleName))
+	var statusList []string
+	allPreloadsLoaded := true
+	mainLoaded := false
+
+	// 1. Check prerequisite drivers (PreloadKo)
+	preloads := module.Kernel.GetPreloadKoList()
+	preloadArgs := module.Kernel.GetPreloadArgsList()
+	for i, preKo := range preloads {
+		modName := normalizeModuleName(preKo)
+		if _, ok := loadedModules[modName]; ok {
+			statusList = append(statusList, fmt.Sprintf("[Preload] %s: loaded", modName))
+			// Check parameters if specified
+			if i < len(preloadArgs) && preloadArgs[i] != "" {
+				dr.checkModuleParameters(modName, preloadArgs[i])
+			}
+		} else {
+			// pcie-dw-rockchip may be built-in (=y) or non-Rockchip board, skip gracefully
+			if strings.Contains(preKo, "pcie-dw-") {
+				statusList = append(statusList, fmt.Sprintf("[Preload] %s: skipped (built-in/opt)", modName))
+				continue
+			}
+			allPreloadsLoaded = false
+			statusList = append(statusList, fmt.Sprintf("[Preload] %s: NOT loaded", modName))
+			dr.Errors = append(dr.Errors, fmt.Sprintf("Preload driver %s is not loaded", preKo))
+		}
+	}
+
+	// 2. Check main driver (KoName)
+	if module.Kernel.KoName != "" {
+		mainModName := normalizeModuleName(module.Kernel.KoName)
+		if _, ok := loadedModules[mainModName]; ok {
+			mainLoaded = true
+			statusList = append(statusList, fmt.Sprintf("[Main] %s: loaded", mainModName))
+			if module.Kernel.InsmodArgs != "" {
+				dr.checkModuleParameters(mainModName, module.Kernel.InsmodArgs)
+			}
+		} else {
+			mainLoaded = false
+			statusList = append(statusList, fmt.Sprintf("[Main] %s: NOT loaded", mainModName))
+			dr.Errors = append(dr.Errors, fmt.Sprintf("Main driver %s is not loaded", module.Kernel.KoName))
+		}
+	} else {
+		mainLoaded = true
+	}
+
+	dr.DriverLoaded = allPreloadsLoaded && mainLoaded
+	dr.DriverInfo = strings.Join(statusList, " | ")
+}
+
+// checkModuleParameters inspects /sys/module/<modName>/parameters/ to verify whether active parameters match expected args
+func (dr *DiagnosisResult) checkModuleParameters(modName, argsStr string) {
+	for _, field := range strings.Fields(argsStr) {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) == 2 {
+			paramKey := strings.TrimSpace(parts[0])
+			expectedVal := strings.TrimSpace(parts[1])
+			paramPath := filepath.Join("/sys/module", modName, "parameters", paramKey)
+			if data, err := os.ReadFile(paramPath); err == nil {
+				actualVal := strings.TrimSpace(string(data))
+				if actualVal != expectedVal {
+					dr.ParamMismatch = true
+					msg := fmt.Sprintf("Module %s parameter mismatch: %s=%s (expected %s)", modName, paramKey, actualVal, expectedVal)
+					dr.MismatchDetails = append(dr.MismatchDetails, msg)
+					dr.Errors = append(dr.Errors, msg)
+				}
+			}
+		}
+	}
 }
 
 // checkRFKill checks for hardware/software radio blocks
@@ -142,11 +214,19 @@ func (dr *DiagnosisResult) checkRFKill() {
 	}
 }
 
-// fetchKernelLogs retrieves recent kernel logs related to the module
-func (dr *DiagnosisResult) fetchKernelLogs(koName string) {
-	moduleName := strings.TrimSuffix(koName, ".ko")
+// fetchKernelLogs retrieves recent kernel logs related to the main module and preload modules
+func (dr *DiagnosisResult) fetchKernelLogs(module *models.WiFiModule) {
+	var keywords []string
+	if module.Kernel.KoName != "" {
+		keywords = append(keywords, strings.ToLower(normalizeModuleName(module.Kernel.KoName)))
+	}
+	for _, preKo := range module.Kernel.GetPreloadKoList() {
+		norm := strings.ToLower(normalizeModuleName(preKo))
+		if norm != "" && !strings.Contains(norm, "pcie_dw") {
+			keywords = append(keywords, norm)
+		}
+	}
 
-	// Use dynamic command lookup for dmesg
 	dmesgPath := sys.FindCommand("dmesg", "dmesg")
 	cmd := exec.Command(dmesgPath)
 	output, err := cmd.Output()
@@ -158,17 +238,21 @@ func (dr *DiagnosisResult) fetchKernelLogs(koName string) {
 	lines := strings.Split(string(output), "\n")
 	matchCount := 0
 
-	// Get last 5 matching lines
-	for i := len(lines) - 1; i >= 0 && matchCount < 5; i-- {
+	// Get last 8 matching lines
+	for i := len(lines) - 1; i >= 0 && matchCount < 8; i-- {
 		line := lines[i]
-		if strings.Contains(strings.ToLower(line), strings.ToLower(moduleName)) {
-			dr.KernelLogs = append([]string{strings.TrimSpace(line)}, dr.KernelLogs...)
-			matchCount++
+		lower := strings.ToLower(line)
+		for _, kw := range keywords {
+			if kw != "" && strings.Contains(lower, kw) {
+				dr.KernelLogs = append([]string{strings.TrimSpace(line)}, dr.KernelLogs...)
+				matchCount++
+				break
+			}
 		}
 	}
 
 	if matchCount == 0 {
-		dr.KernelLogs = append(dr.KernelLogs, fmt.Sprintf("No kernel logs found for %s", moduleName))
+		dr.KernelLogs = append(dr.KernelLogs, fmt.Sprintf("No kernel logs found for [%s]", strings.Join(keywords, ", ")))
 	}
 }
 
@@ -194,12 +278,18 @@ func (dr *DiagnosisResult) Print() {
 	fmt.Printf(ui.Bold+i18n.T("diag.iface_state")+ui.Cyan+"%s"+ui.Reset+"\n", dr.InterfaceState)
 
 	// Driver
-	if dr.DriverLoaded {
+	if dr.DriverLoaded && !dr.ParamMismatch {
 		fmt.Printf(ui.Bold+i18n.T("diag.driver_loaded")+ui.Green+"%v"+ui.Reset+"\n", dr.DriverLoaded)
 	} else {
 		fmt.Printf(ui.Bold+i18n.T("diag.driver_loaded")+ui.Red+"%v"+ui.Reset+"\n", dr.DriverLoaded)
 	}
 	fmt.Printf(ui.Bold+i18n.T("diag.driver_info")+ui.Cyan+"%s"+ui.Reset+"\n", dr.DriverInfo)
+
+	if dr.ParamMismatch {
+		for _, detail := range dr.MismatchDetails {
+			fmt.Println("  " + ui.Yellow + "[WARN] " + detail + ui.Reset)
+		}
+	}
 
 	// RFKill
 	if !dr.RFKillBlocked {

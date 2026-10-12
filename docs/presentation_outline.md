@@ -1,7 +1,7 @@
 # WiFi Band / Protocol / Bandwidth 矩陣關係與參數聯動簡報大綱 (v3 實戰升級版)
 
 > 本文檔統合整理自 [protocol_bandwidth_preset_design.md](file:///d:/QWiFiTestTool/QWifiTestTool/docs/protocol_bandwidth_preset_design.md)，並依據 hostapd / wpa_supplicant 2.11 上游源碼與 802.11-2020 / 802.11be 標準進行技術校正與補強。
-> 納入 **V1.13** 最新工程實作：STA 頻寬抑制 (`disable_ht40`)、執行期二進制相容性探測 (`wpa_cap`)、DFS CAC 狀態機閉環 (`dfsCACPending`)、Realtek 5GHz DFS 依賴修正、動態設定防護 (`sanitizeConfigForDaemon`) 與 6GHz PSC 反推映射機制。
+> 納入 **V1.14** 最新工程實作：STA 雙軌設定生成雙向收斂、WPA3-SAE 強制 PMF 自動補齊、DFS CAC (60s) 即時訊號中斷響應、STA/AP 網路路由 (`ip route flush dev`) 嚴格隔離、Sanity Check 模組執行期參數動態校驗、以及四層二進制搜尋策略 (消除 PATH 盲區)。
 
 ---
 

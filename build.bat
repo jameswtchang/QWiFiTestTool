@@ -30,16 +30,15 @@ if exist QWifiTestTool.exe del /q QWifiTestTool.exe
 if exist QWifiTestTool del /q QWifiTestTool
 
 echo.
-echo [INFO] Syncing XML configuration files...
+echo [INFO] Preparing external XML configuration for distribution...
 echo Source: assets\default_modules.xml
-echo Target: internal\models\default_modules.xml and ..\out\default_modules.xml
-copy /Y assets\default_modules.xml internal\models\default_modules.xml >nul
+echo Target: ..\out\default_modules.xml
 copy /Y assets\default_modules.xml ..\out\default_modules.xml >nul
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to sync XML files
+    echo [ERROR] Failed to copy XML file to ..\out\
     exit /b 1
 )
-echo [SUCCESS] XML files synchronized
+echo [SUCCESS] XML configuration ready in ..\out\
 
 echo.
 echo [INFO] Running go mod tidy...

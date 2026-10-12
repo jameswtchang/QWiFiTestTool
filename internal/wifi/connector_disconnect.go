@@ -24,6 +24,11 @@ func (c *Connector) forceCleanup() {
 	fmt.Printf("[CMD] %s\n", flushCmd)
 	exec.Command("ip", "addr", "flush", "dev", iface).Run()
 
+	// Flush Routes
+	flushRouteCmd := fmt.Sprintf("ip route flush dev %s", iface)
+	fmt.Printf("[CMD] %s\n", flushRouteCmd)
+	exec.Command("ip", "route", "flush", "dev", iface).Run()
+
 	// Bring interface down and up
 	downCmd := fmt.Sprintf("ip link set %s down", iface)
 	fmt.Printf("[CMD] %s\n", downCmd)

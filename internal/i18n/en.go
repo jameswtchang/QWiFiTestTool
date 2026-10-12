@@ -44,7 +44,8 @@ var enMessages = map[string]string{
 
 	// ===== Diagnosis (main.go) =====
 	"info.run_diagnosis":   "[INFO] Running diagnosis...",
-	"prompt.load_driver":   "\nDriver not loaded. Attempt to load driver? [y/N]: ",
+	"prompt.load_driver":            "\nDriver not loaded. Attempt to load driver? [y/N]: ",
+	"prompt.reload_driver_mismatch": "\nDriver parameter mismatch detected. Reload driver to apply correct XML parameters? [y/N]: ",
 	"err.driver_load_fail": "Driver load failed: %w",
 	"info.rerun_diagnosis": "[INFO] Re-running diagnosis...",
 	"diag.post.title":      "Select next action:",
@@ -321,7 +322,8 @@ var enMessages = map[string]string{
 	"drv.preload_unload_fail": "[WARN] Prerequisite driver unload failed %s: %s",
 	"drv.preload_unloaded":    "[SUCCESS] Prerequisite driver unloaded: %s",
 	"drv.exec_cmd":            "[DEBUG] Running command: %s",
-	"drv.already_loaded":      "[INFO] Driver already loaded: %s",
+	"drv.already_loaded":             "[INFO] Driver already loaded: %s",
+	"drv.already_loaded_params_warn": "[WARN] Module %s already loaded in kernel. Specified arguments (%s) may not be applied. Please unload and reload if needed.",
 	"drv.insmod_fail":         "insmod failed: %s - %w",
 	"drv.loaded":              "[SUCCESS] Driver loaded: %s",
 	"drv.module_not_found":    "Module not found",

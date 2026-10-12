@@ -18,6 +18,11 @@
 ✅ **DFS CAC 狀態機閉環 (V1.13)**: 5GHz 160M / DFS 頻道主動檢查 `hostapd_cli` (`state=ENABLED`) 與日誌事件，消除假 PASS  
 ✅ **連線資訊結構化排版 (V1.13)**: STA/AP 模式依「基礎/認證」、「物理射頻」、「網路層」三層分組呈現，清晰專業  
 ✅ **802.11ah HaLow (Sub-GHz)**: 原生支援 Quectel FGH200M 模組 AP/STA 與 Morse 硬體頻率速率解析  
+✅ **雙軌配置生成統一 (V1.14)**: 收斂 `generator.go` 與 `wpa_editor.go`，完整支援 XML `network_` 預設網路與 WPA3-SAE 自動補齊 `ieee80211w=2`  
+✅ **即時訊號響應與對稱清理 (V1.14)**: DFS CAC (60s) 等待支援即刻 Ctrl+C 中斷，STA/AP 模式進程指針管理與 `ip route flush dev` 無線路由嚴格隔離  
+✅ **驅動參數運行時校驗 (V1.14)**: Sanity Check 擴充 PreloadKo 依賴支援與 `/sys/module/.../parameters` 參數比對，提示即時 reload  
+✅ **多層級執行檔解析 (V1.14)**: 四層搜尋策略 (`$PATH` ➔ 自身目錄 ➔ `/usr/sbin` 系統目錄 ➔ fallback)，徹底根除 PATH 盲區  
+✅ **XML 單一真理源重構 (V1.14)**: 透過 `package assets` 原生嵌入，徹底根除雙檔案同步陷阱，IDE Run / Debug / go build 即改即生效  
 
 ## 目錄結構
 
@@ -26,7 +31,8 @@ QWifiTestTool/
 ├── cmd/
 │   └── main.go              # 主程式入口
 ├── assets/
-│   ├── default_modules.xml  # 全域模組配置 (Structured XML)
+│   ├── default_modules.xml  # 全域模組配置 (唯一真理源 Single Source of Truth)
+│   ├── modules.go           # package assets (原生 //go:embed 導出字節)
 │   └── android_arm64/       # Android 靜態二進制檔案
 ├── internal/
 │   ├── models/              # 資料模型 (XML 解析、頻道查詢、JSON 嵌入)
@@ -144,6 +150,6 @@ su
 
 ---
 
-**版本**: V1.13  
-**維護**: WiFi 驅動團隊 (Updated: 2026-10-07)
+**版本**: V1.14  
+**維護**: WiFi 驅動團隊 (Updated: 2026-10-12)
 

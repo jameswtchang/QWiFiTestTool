@@ -16,65 +16,119 @@ func GenerateWpaSupplicantConfig(module *models.WiFiModule, ctrlInterface, ssid,
 	sb.WriteString(fmt.Sprintf("# Generated for module: %s\n", module.DisplayName))
 	sb.WriteString("# Generated at: " + getCurrentTime() + "\n\n")
 
-	// Control interface (auto-detected or from XML)
-	if ctrlInterface != "" {
-		sb.WriteString(fmt.Sprintf("ctrl_interface=%s\n", ctrlInterface))
-	}
-
-	// Global parameters from XML
-	paramsMap := models.ParamsToMap(module.StationConfig)
+	// Separate global and network-specific parameters (network_ prefix) from XML
 	var networkKeyMgmt string
 	networkParams := make(map[string]string)
+	var xmlCtrlInterface string
 
-	for key, value := range paramsMap {
-		// Skip ctrl_interface if already set
-		if key == "ctrl_interface" && ctrlInterface != "" {
+	for _, p := range module.StationConfig {
+		if p.Key == "ctrl_interface" {
+			xmlCtrlInterface = p.Value
 			continue
 		}
-		// Separate network-specific parameters (network_ prefix)
-		if strings.HasPrefix(key, "network_") {
-			paramKey := strings.TrimPrefix(key, "network_")
+		if strings.HasPrefix(p.Key, "network_") {
+			paramKey := strings.TrimPrefix(p.Key, "network_")
 			if paramKey == "key_mgmt" {
-				networkKeyMgmt = value
+				networkKeyMgmt = p.Value
 			} else {
-				networkParams[paramKey] = value
+				networkParams[paramKey] = p.Value
 			}
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 	}
 
-	// Add network block if SSID provided
-	if ssid != "" {
+	// Control interface: prioritize XML setting, fallback to passed argument
+	actualCtrlInterface := xmlCtrlInterface
+	if actualCtrlInterface == "" {
+		actualCtrlInterface = ctrlInterface
+	}
+	if actualCtrlInterface != "" {
+		sb.WriteString(fmt.Sprintf("ctrl_interface=%s\n", actualCtrlInterface))
+	}
+
+	// Write remaining global parameters from XML in order
+	for _, p := range module.StationConfig {
+		if p.Key == "ctrl_interface" || strings.HasPrefix(p.Key, "network_") {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("%s=%s\n", p.Key, p.Value))
+	}
+
+	// Determine target SSID and password:
+	// Prioritize passed arguments, fallback to XML network_ssid and network_sae_password/network_psk
+	targetSSID := ssid
+	if targetSSID == "" {
+		if xmlSSID, ok := networkParams["ssid"]; ok {
+			targetSSID = xmlSSID
+		}
+	}
+
+	targetPassword := password
+	if targetPassword == "" {
+		if xmlSaePw, ok := networkParams["sae_password"]; ok {
+			targetPassword = xmlSaePw
+		} else if xmlPsk, ok := networkParams["psk"]; ok {
+			targetPassword = xmlPsk
+		}
+	}
+
+	// Add network block if SSID provided (via arg or XML)
+	if targetSSID != "" {
 		sb.WriteString("\n# Network configuration\n")
 		sb.WriteString("network={\n")
-		sb.WriteString(fmt.Sprintf("    ssid=\"%s\"\n", ssid))
 
-		if password != "" {
+		quotedSSID := targetSSID
+		if !strings.HasPrefix(quotedSSID, "\"") {
+			quotedSSID = fmt.Sprintf("\"%s\"", quotedSSID)
+		}
+		sb.WriteString(fmt.Sprintf("    ssid=%s\n", quotedSSID))
+
+		if targetPassword != "" {
+			quotedPassword := targetPassword
+			if !strings.HasPrefix(quotedPassword, "\"") {
+				quotedPassword = fmt.Sprintf("\"%s\"", quotedPassword)
+			}
+
 			if networkKeyMgmt == "SAE" {
-				sb.WriteString(fmt.Sprintf("    sae_password=\"%s\"\n", password))
+				sb.WriteString(fmt.Sprintf("    sae_password=%s\n", quotedPassword))
 				sb.WriteString(fmt.Sprintf("    key_mgmt=%s\n", networkKeyMgmt))
 				sb.WriteString("    ieee80211w=2\n")
 			} else {
-				sb.WriteString(fmt.Sprintf("    psk=\"%s\"\n", password))
+				sb.WriteString(fmt.Sprintf("    psk=%s\n", quotedPassword))
 				if networkKeyMgmt != "" {
 					sb.WriteString(fmt.Sprintf("    key_mgmt=%s\n", networkKeyMgmt))
 				}
 			}
 		} else {
-			sb.WriteString("    key_mgmt=NONE\n")
+			if networkKeyMgmt != "" {
+				sb.WriteString(fmt.Sprintf("    key_mgmt=%s\n", networkKeyMgmt))
+			} else {
+				sb.WriteString("    key_mgmt=NONE\n")
+			}
 		}
 
 		// Write remaining network params from XML
-		for k, v := range networkParams {
-			if k == "ssid" || k == "sae_password" || k == "psk" {
+		for _, p := range module.StationConfig {
+			if !strings.HasPrefix(p.Key, "network_") {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("    %s=%s\n", k, v))
+			paramKey := strings.TrimPrefix(p.Key, "network_")
+			if paramKey == "ssid" || paramKey == "sae_password" || paramKey == "psk" || paramKey == "key_mgmt" {
+				continue
+			}
+			if networkKeyMgmt == "SAE" && paramKey == "ieee80211w" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("    %s=%s\n", paramKey, p.Value))
 		}
 
-		sb.WriteString("    scan_ssid=1\n")
+		if _, ok := networkParams["scan_ssid"]; !ok {
+			sb.WriteString("    scan_ssid=1\n")
+		}
 		sb.WriteString("}\n")
+	} else {
+		sb.WriteString("\n# Network configurations will be added here\n")
+		sb.WriteString("# Use wpa_cli or Station mode to add networks\n")
 	}
 
 	return sb.String()

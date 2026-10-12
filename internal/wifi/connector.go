@@ -25,6 +25,7 @@ type Connector struct {
 	ctrlInterface string
 	configPath    string
 	daemonStarted bool
+	wpaCmd        *exec.Cmd
 	log           *logger.SessionLogger
 	wpaLog        *logger.TimestampWriter
 }
@@ -266,6 +267,11 @@ func (c *Connector) startDaemon() error {
 		}
 	}
 
+	// Clean up conflicting AP daemons before starting client mode
+	exec.Command("killall", "-9", "hostapd").Run()
+	exec.Command("killall", "-9", "hostapd_s1g").Run()
+	exec.Command("killall", "-9", "dnsmasq").Run()
+
 	exec.Command("ip", "link", "set", iface, "down").Run()
 	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
 
@@ -316,6 +322,8 @@ func (c *Connector) startDaemon() error {
 		}
 		return fmt.Errorf("failed to start wpa_supplicant: %w", err)
 	}
+
+	c.wpaCmd = cmd
 
 	// Use a channel to track if process exits prematurely
 	exitChan := make(chan error, 1)
@@ -428,6 +436,11 @@ func (c *Connector) startDaemonForScan() error {
 	iface := c.module.Kernel.GetInterface()
 	driver := c.module.Kernel.GetDriverBackend()
 
+	// Clean up conflicting AP daemons before starting scan mode
+	exec.Command("killall", "-9", "hostapd").Run()
+	exec.Command("killall", "-9", "hostapd_s1g").Run()
+	exec.Command("killall", "-9", "dnsmasq").Run()
+
 	exec.Command("ip", "link", "set", iface, "down").Run()
 	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
 
@@ -482,6 +495,8 @@ update_config=1
 		}
 		return fmt.Errorf(i18n.T("conn.scan_mode_fail"), err)
 	}
+
+	c.wpaCmd = cmd
 
 	// Use a channel to track if process exits prematurely
 	exitChan := make(chan error, 1)
@@ -685,22 +700,43 @@ func (c *Connector) Stop() error {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// 2. Kill wpa_supplicant processes via both killall and pkill (-9)
-	for _, proc := range []string{"wpa_supplicant", "wpa_supplicant_s1g"} {
+	// 2. Kill tracked wpa_supplicant command directly if active
+	if c.wpaCmd != nil && c.wpaCmd.Process != nil {
+		_ = c.wpaCmd.Process.Kill()
+		c.wpaCmd = nil
+	}
+
+	// 3. Kill wpa_supplicant processes via both killall and pkill (-9)
+	procsToKill := []string{"wpa_supplicant", "wpa_supplicant_s1g"}
+	if c.wpaSupplicant != "" {
+		base := filepath.Base(c.wpaSupplicant)
+		if base != "" && base != "wpa_supplicant" && base != "wpa_supplicant_s1g" {
+			procsToKill = append(procsToKill, base)
+		}
+	}
+	for _, proc := range procsToKill {
 		exec.Command("killall", "-9", proc).Run()
 		exec.Command("pkill", "-9", proc).Run()
 	}
 
-	// 3. Kill DHCP clients (udhcpc, dhclient)
+	// 4. Kill DHCP clients (udhcpc, dhclient)
 	for _, dhcp := range []string{"udhcpc", "dhclient"} {
 		exec.Command("killall", "-9", dhcp).Run()
 		exec.Command("pkill", "-9", dhcp).Run()
 	}
 
-	// 4. Flush IP address on interface and reset link state
-	c.forceCleanup()
+	// 5. Kill conflicting AP daemons (hostapd, dnsmasq)
+	for _, apProc := range []string{"hostapd", "hostapd_s1g", "dnsmasq"} {
+		exec.Command("killall", "-9", apProc).Run()
+		exec.Command("pkill", "-9", apProc).Run()
+	}
 
-	// 5. Cleanup socket files and logs
+	// 6. Flush IP addresses and routing table on interface, and bring link down
+	exec.Command("ip", "addr", "flush", "dev", iface).Run()
+	exec.Command("ip", "route", "flush", "dev", iface).Run()
+	exec.Command("ip", "link", "set", iface, "down").Run()
+
+	// 7. Cleanup socket files and logs
 	c.cleanupSocketFiles()
 	compatPath := filepath.Join(os.TempDir(), "wpa_supplicant_compat.conf")
 	_ = os.Remove(compatPath)

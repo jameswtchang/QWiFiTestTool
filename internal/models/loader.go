@@ -1,7 +1,7 @@
 package models
 
 import (
-	_ "embed"
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -9,15 +9,13 @@ import (
 	"runtime"
 	"strings"
 
+	"qwifitesttool/assets"
 	"qwifitesttool/internal/i18n"
 )
 
-//go:embed default_modules.xml
-var defaultModulesXML []byte
-
 // LoadModules loads WiFi module configurations using a hybrid strategy:
 // 1. Try external file (./default_modules.xml on Linux, /data/local/tmp/default_modules.xml on Android)
-// 2. Fall back to embedded default configuration
+// 2. Fall back to embedded default configuration (from assets package)
 func LoadModules() (*WiFiToolConfig, error) {
 	// Determine external path based on platform
 	externalPath := getExternalConfigPath()
@@ -25,12 +23,15 @@ func LoadModules() (*WiFiToolConfig, error) {
 	// Try loading from external file first
 	if data, err := os.ReadFile(externalPath); err == nil {
 		fmt.Println(i18n.Tf("loader.external", externalPath))
+		if !bytes.Equal(data, assets.DefaultModulesXML) {
+			fmt.Println("[INFO] 偵測到自訂外部配置 (與程式內嵌版本不同)")
+		}
 		return parseXML(data)
 	}
 
 	// Fall back to embedded configuration
 	fmt.Println(i18n.T("loader.embedded"))
-	return parseXML(defaultModulesXML)
+	return parseXML(assets.DefaultModulesXML)
 }
 
 // getExternalConfigPath returns the platform-specific external config path

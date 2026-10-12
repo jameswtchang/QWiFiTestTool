@@ -221,4 +221,54 @@
   * **STA 聚焦下行指標**：STA 模式下行依賴 RSSI（dBm 及優良評級）與物理調變速率（Bitrate/MCS），去除無效且易混淆的發射功率 (TxPower)。
   * **AP 資訊純淨化**：移除 AP 啟動後舊有的冗餘重複行（介面/驅動/SSID），將實體射頻頻道、頻寬（含 6GHz 320M 識別）與硬體 TxPower 整合至 RF 群組統一輸出。
 
+---
+
+## 10. 最新更新 (2026-10-12) — V1.14 (雙軌設定雙向統一、CAC 即時訊號響應、驅動參數運行時校驗、PATH 盲區多層搜尋與架構加固)
+
+### 10.1 雙軌設定檔生成機制收斂與 WPA3 自動防護
+* **背景**：先前 `generator.go`（後台自動生成）與 `wpa_editor.go`（互動式 TUI 編輯器）存在邏輯分歧：後台模式會丟失 XML 預設 network 參數；TUI 編輯器手動拼裝字串容易造成格式不一致；且 WPA3-SAE 模式遺漏強制性 Protected Management Frames (PMF)。
+* **架構統一** (`internal/config/generator.go`, `wpa_editor.go`)：
+  * `wpa_editor.go` 的預設配置生成直接委託調用 `GenerateWpaSupplicantConfig()`，實現全系統單一真理源（Single Source of Truth）。
+  * 支援讀取 XML 中的 `network_` 前綴參數（`network_ssid`, `network_key_mgmt`, `network_sae_password`, `network_psk`），優先採用傳入參數，缺省時由 XML 自動補齊。
+  * 偵測到 `SAE` 認證時，自動注入 `ieee80211w=2` (PMF 強制)；若未指定預設 SSID，保證不輸出無效的空 `network={}` 區塊，防止 `wpa_supplicant` 解析報錯退出。
+
+### 10.2 行程與訊號管理對稱性 (Ctrl+C 優雅中斷與資源防護)
+* **DFS CAC 等待即時響應** (`internal/wifi/hotspot.go`)：
+  * 將信號通道 `sigChan` 提早註冊至服務啟動階段，在 60 秒 CAC 等待循環中透過 `select { case <-sigChan: ... }` 監聽。
+  * 使用者隨時可按 Ctrl+C 即刻停止 AP 服務並清理資源，徹底消除長達 60~75 秒的阻塞 hang 現象。
+* **STA 模式進程追蹤與路由隔離** (`internal/wifi/connector.go`, `connector_disconnect.go`)：
+  * `Connector` 實例新增 `wpaCmd *exec.Cmd` 成員，退出時直接調用 `cmd.Process.Kill()`，杜絕殭屍行程。
+  * 退出清理時追加 `ip route flush dev <iface>` 與 link down，嚴格局限於指定無線網卡，絕不波及系統的 `eth0` 乙太網。
+
+### 10.3 驅動健全性檢查 (Sanity Check) 強化與動態參數比對
+* **多模組依賴支援** (`internal/wifi/diagnosis.go`)：
+  * Sanity Check 擴充支援 `module.Kernel.GetPreloadKoList()`，逐一核對底層模組（如 pcie, s1g 等）載入狀態，並自動排除平台 built-in 模組（`pcie-dw-*`）誤報。
+  * 擴充 `/dmesg` 搜尋關鍵字，同時監控主驅動與 Preload 依賴模組的內核日誌。
+* **執行期參數比對與重載提示** (`internal/wifi/diagnosis.go`, `driver_loader.go`, `cmd/main.go`)：
+  * 深入檢驗 `/sys/module/<modName>/parameters/`，比對內核實際運行值與 XML 期望值。
+  * 偵測到參數不一致時，主動提示使用者「重新卸載並載入驅動以套用正確參數」。
+  * `UnloadDriver` 卸載前先主動停用網路介面與殺除佔用行程，消除 `Module is in use` 卸載失敗。
+
+### 10.4 可執行檔多層級搜尋策略 (消除 PATH 盲區)
+* **四層動態解析架構** (`internal/sys/cmdpath.go`, `binary_mgr.go`, `hotspot.go`)：
+  1. `exec.LookPath` (搜尋當前 `$PATH`)
+  2. 檢查當前執行檔同級目錄 (`filepath.Dir(os.Executable())`)
+  3. 掃描標準系統目錄 (`/usr/sbin`, `/sbin`, `/usr/local/bin`, `/system/bin`, `/data/local/tmp` 等)
+  4. 驗證 fallback 預設路徑存在性
+* **專用二進制動態對接**：
+  * `BinaryManager` 新增 `GetWpaSupplicantPathFor(module)` 與 `GetHostapdPathFor(module)`，自動為 Morse Micro HaLow 模組對接 `wpa_supplicant_s1g` / `hostapd_s1g`。
+  * AP 模式動態解析 `dnsmasq` 完整路徑，徹底解決 Buildroot / Busybox / Android 環境下因為普通使用者無 `/usr/sbin` 導致 `command not found` 的問題。
+
+### 10.5 開發維護陷阱消除：XML 單一真理源重構 (package assets embed)
+* **背景與痛點**：
+  * 過去受限於 Go `//go:embed` 不允許存取包含 `..` 的上層路徑限制，專案在 `internal/models/` 複製了另一份 `default_modules.xml` 並依賴腳本同步。
+  * 若工程師在 IDE / VS Code 直接按 Run / Debug，或在終端機下 `go build` / `go test`，不會觸發 `build.bat` 複製指令，導致修改 `assets/default_modules.xml` 後二進制檔案嵌入的仍是舊版配置，陷入「改了設定卻不生效」的幽靈狀態。
+* **重構實現** (`assets/modules.go`, `internal/models/loader.go`)：
+  * 建立 `package assets`（`assets/modules.go`），在與 XML 同級目錄下執行 `//go:embed default_modules.xml` 導出 `assets.DefaultModulesXML`。
+  * `internal/models/loader.go` 直接 `import "qwifitesttool/assets"` 讀取內嵌字節，徹底刪除 `internal/models/default_modules.xml` 實體檔案，全倉庫只保留唯一一份真理源。
+  * 保留雙軌防護：開發板 `/data/local/tmp/default_modules.xml` 存在時優先載入（現場調校免重編譯）；不存在時無縫回退至內嵌配置（保證不怕漏推檔案）。
+  * 增加版本漂移防呆提示：若板端外部檔案與內嵌預設版本內容不同，自動輸出 `[INFO] 偵測到自訂外部配置 (與程式內嵌版本不同)`，防止舊檔案遮蔽新版本行為。
+  * 淨化工作流：移除 `build.bat`、`build.sh` 與 `.agent/workflows/deploy.md` 內的 XML 複製包袱。
+
+
 

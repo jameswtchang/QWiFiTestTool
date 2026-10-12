@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"qwifitesttool/internal/models"
 )
 
 // Embedded binary assets for Android ARM64
@@ -95,12 +97,28 @@ func (bm *BinaryManager) GetWpaSupplicantPath() string {
 	return FindCommand("wpa_supplicant", "/usr/sbin/wpa_supplicant")
 }
 
+// GetWpaSupplicantPathFor returns the appropriate wpa_supplicant binary path for a given module
+func (bm *BinaryManager) GetWpaSupplicantPathFor(module *models.WiFiModule) string {
+	if module != nil && module.ID == "quectel_fgh200m" {
+		return FindCommand("wpa_supplicant_s1g", "/usr/sbin/wpa_supplicant_s1g")
+	}
+	return bm.GetWpaSupplicantPath()
+}
+
 // GetHostapdPath returns the absolute path to hostapd
 func (bm *BinaryManager) GetHostapdPath() string {
 	if bm.platform == "android" {
 		return filepath.Join(bm.extractPath, hostapdName)
 	}
 	return FindCommand("hostapd", "/usr/sbin/hostapd")
+}
+
+// GetHostapdPathFor returns the appropriate hostapd binary path for a given module
+func (bm *BinaryManager) GetHostapdPathFor(module *models.WiFiModule) string {
+	if module != nil && module.ID == "quectel_fgh200m" {
+		return FindCommand("hostapd_s1g", "/usr/sbin/hostapd_s1g")
+	}
+	return bm.GetHostapdPath()
 }
 
 // GetWpaCliPath returns the absolute path to wpa_cli

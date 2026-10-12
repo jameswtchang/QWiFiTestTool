@@ -29,6 +29,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1
 - **`-ApOnly`**: 排除 STA 相關項目，專注 AP 模式。
 - **`-StaOnly`**: 排除 AP 相關項目，專注 STA 模式。
 
+## V1.14 穩健性與架構改進
+
+- **雙軌配置生成統一與 WPA3 自動防護**：收斂 `generator.go` 與 `wpa_editor.go`，全面支援 XML 預設 network（`network_ssid` / `network_sae_password`），並在 SAE 認證下強制注入 `ieee80211w=2` (PMF)。
+- **DFS CAC 即時中斷響應**：在 60 秒 CAC 監聽循環中支援 Ctrl+C 即時信號捕獲，可隨時中斷 AP 啟動並閉環清理資源，杜絕 60 秒 hang 阻塞。
+- **STA 模式進程追蹤與路由隔離**：新增 `c.wpaCmd` 指針生命週期管理，退出時徹底清除子進程並局部執行 `ip route flush dev <iface>`，隔離無線網卡且不干擾 `eth0`。
+- **驅動健全性檢查深度化**：Sanity Check 擴充 PreloadKo 檢查並主動比對 `/sys/module/<mod>/parameters` 參數，參數不一致時提示重新載入。
+- **四層執行檔路徑搜尋策略**：消除 Android/Linux PATH 盲區，動態識別 `wpa_supplicant_s1g`、`hostapd_s1g` 與 `dnsmasq`。
+- **XML 單一真理源架構**：將 `assets/default_modules.xml` 透過 `assets/modules.go` 原生內嵌，廢除雙檔案複製機制，徹底解決 IDE 直跑與腳本不同步問題。
+
 ## V1.13 穩健性與架構改進
 
 - **DFS 頻道可用性檢查 (CAC) 狀態機閉環**：針對 5GHz 160MHz 或 DFS 頻道，深入對接 `hostapd_cli status` (`state=ENABLED`) 及 hostapd 日誌事件 (`DFS-CAC-START`、`DFS-CAC-COMPLETED success=1`、`AP-ENABLED`)，徹底消除 60 秒 CAC 期間提早判定就緒的假 PASS。

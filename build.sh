@@ -27,16 +27,15 @@ mkdir -p ../out
 rm -f ../out/QWifiTestTool ../out/QWifiTestTool.exe QWifiTestTool QWifiTestTool.exe
 
 echo ""
-echo "[INFO] Syncing XML configuration files..."
+echo "[INFO] Preparing external XML configuration for distribution..."
 echo "Source: assets/default_modules.xml"
-echo "Target: internal/models/default_modules.xml and ../out/default_modules.xml"
-cp assets/default_modules.xml internal/models/default_modules.xml
+echo "Target: ../out/default_modules.xml"
 cp assets/default_modules.xml ../out/default_modules.xml
 if [ $? -ne 0 ]; then
-    echo "[ERROR] Failed to sync XML files"
+    echo "[ERROR] Failed to copy XML file to ../out/"
     exit 1
 fi
-echo "[SUCCESS] XML files synchronized"
+echo "[SUCCESS] XML configuration ready in ../out/"
 
 echo ""
 echo "[INFO] Running go mod tidy..."

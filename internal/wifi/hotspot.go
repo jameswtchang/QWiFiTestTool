@@ -38,7 +38,7 @@ func NewHotspot(module *models.WiFiModule, hostapdPath string) *Hotspot {
 	return &Hotspot{
 		module:      module,
 		hostapdPath: hostapdPath,
-		dnsmasqPath: "dnsmasq", // Will be resolved dynamically
+		dnsmasqPath: sys.FindCommand("dnsmasq", "/usr/sbin/dnsmasq"),
 		logDir:      "/tmp/wifi_logs",
 	}
 }
@@ -207,6 +207,11 @@ func (h *Hotspot) startServices() error {
 	// Set regulatory domain before starting hostapd
 	h.setRegulatoryDomain()
 
+	// Handle Ctrl+C gracefully from the moment daemons start
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
 	// Start hostapd
 	if err := h.startHostapd(hostapdLog); err != nil {
 		return err
@@ -226,7 +231,14 @@ func (h *Hotspot) startServices() error {
 		fmt.Println(ui.Yellow + "[INFO] 偵測到 DFS 頻道 (ieee80211h=1)，正在等待 CAC 頻道可用性檢查 (~60秒)..." + ui.Reset)
 	}
 	for i := 0; i < maxWait; i++ {
-		time.Sleep(1 * time.Second)
+		select {
+		case <-sigChan:
+			fmt.Println("\n" + i18n.T("hotspot.stopping"))
+			h.Stop()
+			return nil
+		case <-time.After(1 * time.Second):
+		}
+
 		out, err := exec.Command("iw", "dev", h.module.Kernel.GetInterface(), "info").Output()
 		if err != nil {
 			continue
@@ -267,11 +279,6 @@ func (h *Hotspot) startServices() error {
 	fmt.Printf("  dnsmasq: %s\n", dnsmasqLog)
 	fmt.Printf("  dmesg:   %s\n", dmesgLog)
 	fmt.Println("\n" + i18n.T("hotspot.press_ctrl_c"))
-
-	// Handle Ctrl+C gracefully
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
 
 	// Wait for signal or process exit
 	done := make(chan error, 1)

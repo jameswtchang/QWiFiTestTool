@@ -259,3 +259,31 @@ hostapd 內部邏輯強制要求：若宣告 `ieee80211h=1`，必須同時宣告
 - **`disable_ht40` 指令探測**：修正 PS 5.1 雙引號傳遞截斷問題，改為單引號傳送，避免 STA 頻寬上限測試產生誤發輸入。
 - **UTF-8 with BOM 編碼**：確保在不同語系 Windows PowerShell 5.1 環境中，正則匹配字串不發生編碼錯亂。
 - **全量 29 組 AP 實測**：使用 `-RfAll` 在 Qualcomm FME170Q-865 實測達成 **29 / 29 PASS (100%)**。
+
+---
+
+## 8. V1.14 穩健性與架構改進
+
+### 8.1 雙軌設定檔生成機制收斂與 WPA3 自動防護
+- 收斂 `generator.go` 與 `wpa_editor.go`，避免後台生成與 TUI 編輯器邏輯分歧。
+- 支援讀取 XML 中的 `network_` 前綴參數（`network_ssid` / `network_sae_password`），優先採用傳入參數，缺省時由 XML 自動補齊。
+- 偵測到 `SAE` 認證時，自動注入 `ieee80211w=2` (PMF 強制)；若未指定預設 SSID，保證不輸出無效的空 `network={}` 區塊，防止 `wpa_supplicant` 解析報錯退出。
+
+### 8.2 行程與訊號管理對稱性 (Ctrl+C 優雅中斷與資源防護)
+- **CAC 等待即刻響應**：將信號通道提早註冊至服務啟動階段，在 60 秒 CAC 等待循環中透過 select 監聽 `sigChan`，按 Ctrl+C 可隨時中斷 AP 啟動並清理資源，不再阻塞 60 秒。
+- **STA 行程追蹤與路由隔離**：追蹤 `wpaCmd` 指針並在退出時直殺子行程；退出清理時追加 `ip route flush dev <iface>` 與 link down，嚴格局限於指定無線網卡，不波及系統 `eth0` 實體網卡。
+
+### 8.3 驅動健全性檢查 (Sanity Check) 強化與動態參數比對
+- **PreloadKo 多模組檢查**：Sanity Check 擴充支援 `module.Kernel.GetPreloadKoList()`，逐一核對依賴模組載入狀態，自動排除 `pcie-dw-*` built-in 模組誤報。
+- **動態參數比對與重載提示**：比對 `/sys/module/<modName>/parameters/` 內核參數與 XML 預期值，不一致時主動提示重新卸載載入。
+- **UnloadDriver 卸載防護**：卸載前先主動停用網路介面與殺除佔用行程，消除 `Module is in use` 卸載失敗。
+
+### 8.4 可執行檔多層級搜尋策略 (消除 PATH 盲區)
+- `FindCommand` 擴充為四層搜尋策略：`$PATH` ➔ 自身目錄 ➔ `/usr/sbin` 系統目錄 ➔ fallback。
+- 自動識別 `wpa_supplicant_s1g`、`hostapd_s1g`、`dnsmasq` 等工具，徹底解決 Buildroot / Busybox / Android 最小化發行版下的指令路徑找不到問題。
+
+### 8.5 XML 單一真理源重構 (package assets embed)
+- 將 `assets/default_modules.xml` 透過 `assets/modules.go` 原生內嵌，廢除 `internal/models/` 內的複本。
+- 移除各類建置腳本中複製 XML 的邏輯，徹底根絕 IDE/終端直接編譯時的幽靈不同步問題。
+- 執行期雙軌防護：板端外部 XML 優先讀取（現場免編譯調校），外部檔案不存在時無縫 fallback 內嵌資料（防漏推保底）。
+

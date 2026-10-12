@@ -44,7 +44,8 @@ var zhMessages = map[string]string{
 
 	// ===== Diagnosis (main.go) =====
 	"info.run_diagnosis":   "[INFO] 執行診斷檢查...",
-	"prompt.load_driver":   "\n驅動未載入。是否嘗試載入驅動? [y/N]: ",
+	"prompt.load_driver":            "\n驅動未載入。是否嘗試載入驅動? [y/N]: ",
+	"prompt.reload_driver_mismatch": "\n檢測到驅動參數與 XML 設定不一致。是否重新卸載並載入驅動以套用正確參數? [y/N]: ",
 	"err.driver_load_fail": "驅動載入失敗: %w",
 	"info.rerun_diagnosis": "[INFO] 重新執行診斷...",
 	"diag.post.title":      "請選擇後續操作:",
@@ -321,7 +322,8 @@ var zhMessages = map[string]string{
 	"drv.preload_unload_fail": "[WARN] 前置驅動卸載失敗 %s: %s",
 	"drv.preload_unloaded":    "[SUCCESS] 已卸載前置驅動: %s",
 	"drv.exec_cmd":            "[DEBUG] 執行命令: %s",
-	"drv.already_loaded":      "[INFO] 驅動已載入: %s",
+	"drv.already_loaded":             "[INFO] 驅動已載入: %s",
+	"drv.already_loaded_params_warn": "[WARN] 模組 %s 已在內核中，指定的參數 (%s) 可能未更新。如需套用請先卸載再載入。",
 	"drv.insmod_fail":         "insmod 失敗: %s - %w",
 	"drv.loaded":              "[SUCCESS] 已載入驅動: %s",
 	"drv.module_not_found":    "模組未找到",

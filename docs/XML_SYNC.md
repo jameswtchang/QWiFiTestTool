@@ -1,137 +1,36 @@
-# XML 檔案自動同步說明
+# XML 模組配置架構說明 (Single Source of Truth)
 
-## 設計原因
+## 設計架構
 
-QWifiTestTool 有兩個 `default_modules.xml` 檔案：
+在 QWifiTestTool 中，全系統僅維護**唯一一份實體模組設定檔**：
+* **`assets/default_modules.xml`**
 
-1. **assets/default_modules.xml** - 主要編輯檔案
-2. **internal/models/default_modules.xml** - 嵌入到二進制檔案中
+### 架構演進：消除雙檔案同步陷阱
 
-### 為什麼需要兩份？
+過去因為 Go `//go:embed` 不允許存取上層目錄（`..`），專案曾在 `internal/models/` 複製了另一份 `default_modules.xml` 並依賴腳本複製，導致 IDE / VS Code 直接 Run/Debug 時改動不生效。
 
-Due to Go `embed` directive limitations, we cannot use `../` to reference parent directories:
-
-```go
-//go:embed default_modules.xml  // ✅ OK - same directory
-//go:embed ../../assets/...      // ❌ ERROR - parent directory not allowed
+現已全面重構為 **`package assets` 微型嵌入模組架構**：
+```mermaid
+graph LR
+    A["assets/default_modules.xml<br/>(唯一真理源)"] -->|同目錄 //go:embed| B["assets/modules.go<br/>(package assets)"]
+    B -->|import 導出變數| C["internal/models/loader.go<br/>(LoadModules fallback)"]
+    A -.->|現場調校 adb push| D["/data/local/tmp/default_modules.xml<br/>(開發板外掛優先讀取)"]
 ```
+
+1. **`assets/modules.go`** 與 `default_modules.xml` 位於同一個目錄，合法執行 `//go:embed default_modules.xml` 導出 `assets.DefaultModulesXML`。
+2. **`internal/models/loader.go`** 直接 `import "qwifitesttool/assets"`，完全免除實體檔案複製。
+3. 不管是 IDE (VS Code / GoLand) 直接 F5、命令列執行 `go run`、`go test` 或 `go build`，編譯器直接抓取 `assets/default_modules.xml`，**修改 100% 保證即時生效**。
 
 ---
 
-## 自動同步機制
+## 運行時載入優先權
 
-### 建置時自動同步
+`models.LoadModules()` 採用雙軌防護策略：
 
-**build.bat** (Windows):
-```batch
-echo [INFO] Syncing XML configuration files...
-copy /Y assets\default_modules.xml internal\models\default_modules.xml >nul
-```
+| 順序 | 載入來源 | 說明 | 適用情境 |
+|:---:|:---|:---|:---|
+| **1 (優先)** | 開發板/系統外部檔案 | `/data/local/tmp/default_modules.xml` 或執行檔旁 | 現場人員免重新編譯，直接 `vi` 外部 XML 調校參數即時生效 |
+| **2 (保底)** | 程式二進制內嵌版本 | `assets.DefaultModulesXML` | 開發板無任何外掛檔案時，保證 100% 自主運作（防漏推） |
 
-**build.sh** (Linux/macOS):
-```bash
-echo "[INFO] Syncing XML configuration files..."
-cp assets/default_modules.xml internal/models/default_modules.xml
-```
+> **防呆機制**：若板端存在外部檔案且內容與內嵌預設版本不同，系統將自動印出黃色警告提示 `[INFO] 偵測到自訂外部配置 (與程式內嵌版本不同)`，避免板端過期殘留檔案遮蔽新版程式的預期行為。
 
-### 使用方式
-
-**編輯 XML**：
-```
-只編輯 assets/default_modules.xml
-```
-
-**建置程式**：
-```batch
-# Windows
-build.bat
-
-# Linux/macOS
-./build.sh
-```
-
-建置腳本會自動將 `assets/default_modules.xml` 複製到 `internal/models/`，然後編譯。
-
----
-
-## 工作流程
-
-### 1. 新增或修改模組
-
-編輯 `assets/default_modules.xml`：
-
-```xml
-<Module id="new_module">
-    <DisplayName>New Module</DisplayName>
-    ...
-</Module>
-```
-
-### 2. 執行建置
-
-```batch
-build.bat
-```
-
-輸出：
-```
-[INFO] Syncing XML configuration files...
-Source: assets\default_modules.xml
-Target: internal\models\default_modules.xml
-[SUCCESS] XML files synchronized
-
-[INFO] Building for Windows (testing)...
-```
-
-### 3. 完成
-
-- ✅ XML 已自動同步
-- ✅ 新配置已嵌入二進制檔案
-- ✅ 無需手動複製
-
----
-
-## 手動同步（如需要）
-
-### Windows (PowerShell)
-```powershell
-Copy-Item -Path assets\default_modules.xml -Destination internal\models\default_modules.xml -Force
-```
-
-### Windows (CMD)
-```cmd
-copy /Y assets\default_modules.xml internal\models\default_modules.xml
-```
-
-### Linux/macOS
-```bash
-cp assets/default_modules.xml internal/models/default_modules.xml
-```
-
----
-
-## 檔案角色
-
-| 檔案 | 角色 | 編輯 |
-|------|------|------|
-| `assets/default_modules.xml` | 主要來源 | ✅ 編輯此檔案 |
-| `internal/models/default_modules.xml` | 嵌入版本 | ❌ 自動生成 |
-
----
-
-## 注意事項
-
-⚠️ **重要**: 
-- 只編輯 `assets/default_modules.xml`
-- 使用 `build.bat` 或 `build.sh` 建置
-- `internal/models/default_modules.xml` 會自動更新
-
-✅ **好處**:
-- 單一真實來源 (`assets/`)
-- 自動同步，無需手動操作
-- 建置流程簡單明確
-
----
-
-**版本**: v2.1.1  
-**更新日期**: 2026-02-02

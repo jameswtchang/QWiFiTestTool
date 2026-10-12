@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"qwifitesttool/internal/config"
 	"qwifitesttool/internal/i18n"
@@ -15,7 +17,7 @@ import (
 )
 
 // Version defines the application version string
-const Version = "V1.13"
+const Version = "V1.14"
 
 func main() {
 	// Show banner
@@ -111,13 +113,21 @@ func runDiagnosis(module *models.WiFiModule) bool {
 	result := wifi.RunDiagnosis(module)
 	result.Print()
 
-	// If driver is not loaded, offer to load it
-	if !result.DriverLoaded {
-		fmt.Print(i18n.T("prompt.load_driver"))
+	// If driver is not loaded or parameters mismatch, offer to load/reload it
+	if !result.DriverLoaded || result.ParamMismatch {
+		promptKey := "prompt.load_driver"
+		if result.DriverLoaded && result.ParamMismatch {
+			promptKey = "prompt.reload_driver_mismatch"
+		}
+		fmt.Print(i18n.T(promptKey))
 		var response string
 		fmt.Scanln(&response)
 
 		if response == "y" || response == "Y" {
+			if result.ParamMismatch {
+				// Must unload first so new parameters can be passed to insmod
+				_ = wifi.UnloadDriver(module)
+			}
 			if err := wifi.LoadDriver(module); err != nil {
 				ui.ShowError(fmt.Errorf(i18n.T("err.driver_load_fail"), err))
 			} else {
@@ -173,10 +183,7 @@ func runDiagnosis(module *models.WiFiModule) bool {
 
 // runStationMode runs Station mode workflow
 func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platformInfo *sys.PlatformInfo) {
-	supplicantPath := binMgr.GetWpaSupplicantPath()
-	if module.ID == "quectel_fgh200m" {
-		supplicantPath = "wpa_supplicant_s1g"
-	}
+	supplicantPath := binMgr.GetWpaSupplicantPathFor(module)
 
 	connector := wifi.NewConnector(
 		module,
@@ -184,6 +191,25 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 		platformInfo.WpaCliPath,
 		platformInfo.WpaSupplicantSocket, // already overridden from StationConfig
 	)
+
+	// Intercept Ctrl+C / SIGTERM during Station mode to guarantee daemon and interface cleanup
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	doneChan := make(chan struct{})
+	defer close(doneChan)
+
+	go func() {
+		select {
+		case <-sigChan:
+			fmt.Println("\n" + ui.Yellow + "[INFO] 接收到中斷信號 (Ctrl+C)，正在清理 Station 模式資源與行程..." + ui.Reset)
+			connector.Stop()
+			os.Exit(130)
+		case <-doneChan:
+			return
+		}
+	}()
 
 	keepRunning, err := connector.Start()
 	if err != nil {
@@ -233,10 +259,7 @@ func runAPConfigEditor(module *models.WiFiModule) {
 
 // runAPMode runs AP mode workflow
 func runAPMode(module *models.WiFiModule, binMgr *sys.BinaryManager) {
-	hostapdPath := binMgr.GetHostapdPath()
-	if module.ID == "quectel_fgh200m" {
-		hostapdPath = "hostapd_s1g"
-	}
+	hostapdPath := binMgr.GetHostapdPathFor(module)
 
 	hotspot := wifi.NewHotspot(
 		module,

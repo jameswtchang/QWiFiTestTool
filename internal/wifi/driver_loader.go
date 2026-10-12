@@ -11,6 +11,7 @@ import (
 	"qwifitesttool/internal/i18n"
 	"qwifitesttool/internal/models"
 	"qwifitesttool/internal/sys"
+	"qwifitesttool/internal/ui"
 )
 
 // LoadDriver attempts to load a kernel module using a three-tier search strategy:
@@ -145,7 +146,24 @@ func findAndInsmod(koName, args string) error {
 
 // UnloadDriver removes a loaded kernel module
 func UnloadDriver(module *models.WiFiModule) error {
-	moduleName := strings.TrimSuffix(module.Kernel.KoName, ".ko")
+	iface := module.Kernel.GetInterface()
+
+	// 1. Terminate user-space processes holding the network interface
+	procsToKill := []string{"wpa_supplicant", "wpa_supplicant_s1g", "hostapd", "hostapd_s1g", "dnsmasq", "udhcpc", "dhclient"}
+	for _, proc := range procsToKill {
+		exec.Command("killall", "-9", proc).Run()
+		exec.Command("pkill", "-9", proc).Run()
+	}
+
+	// 2. Bring down the interface and flush addresses/routes so netdevice refcount drops
+	if iface != "" {
+		exec.Command("ip", "addr", "flush", "dev", iface).Run()
+		exec.Command("ip", "route", "flush", "dev", iface).Run()
+		exec.Command("ip", "link", "set", iface, "down").Run()
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	moduleName := strings.TrimSuffix(filepath.Base(module.Kernel.KoName), ".ko")
 
 	fmt.Println(i18n.Tf("drv.unloading", moduleName))
 
@@ -155,10 +173,16 @@ func UnloadDriver(module *models.WiFiModule) error {
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return fmt.Errorf(i18n.T("drv.unload_fail"), string(output), err)
+		outStr := string(output)
+		// If module was not currently loaded, continue to preloads instead of aborting
+		if strings.Contains(outStr, "not currently loaded") || strings.Contains(outStr, "No such file") {
+			fmt.Println(i18n.Tf("drv.already_loaded", moduleName))
+		} else {
+			return fmt.Errorf(i18n.T("drv.unload_fail"), outStr, err)
+		}
+	} else {
+		fmt.Println(i18n.Tf("drv.unloaded", moduleName))
 	}
-
-	fmt.Println(i18n.Tf("drv.unloaded", moduleName))
 
 	// Unload prerequisite ko files in reverse order
 	preloads := module.Kernel.GetPreloadKoList()
@@ -173,7 +197,11 @@ func UnloadDriver(module *models.WiFiModule) error {
 		cmd := exec.Command(rmmodPath, preModName)
 		fmt.Println(i18n.Tf("drv.exec_cmd", rmmodPath+" "+preModName))
 		if output, err := cmd.CombinedOutput(); err != nil {
-			fmt.Println(i18n.Tf("drv.preload_unload_fail", preModName, string(output)))
+			outStr := string(output)
+			if strings.Contains(outStr, "not currently loaded") || strings.Contains(outStr, "No such file") {
+				continue
+			}
+			fmt.Println(i18n.Tf("drv.preload_unload_fail", preModName, outStr))
 		} else {
 			fmt.Println(i18n.Tf("drv.preload_unloaded", preModName))
 		}
@@ -203,9 +231,13 @@ func insmodDriver(koPath, args string) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Already loaded is not an error
+		// Already loaded is not an error, but warn if custom arguments were specified
 		if strings.Contains(string(output), "File exists") {
-			fmt.Println(i18n.Tf("drv.already_loaded", koPath))
+			if args != "" {
+				fmt.Println(ui.Yellow + i18n.Tf("drv.already_loaded_params_warn", koPath, args) + ui.Reset)
+			} else {
+				fmt.Println(i18n.Tf("drv.already_loaded", koPath))
+			}
 			return nil
 		}
 		return fmt.Errorf(i18n.T("drv.insmod_fail"), string(output), err)
