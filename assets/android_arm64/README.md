@@ -2,6 +2,24 @@
 
 本目錄應包含以下靜態編譯的二進制檔案：
 
+## 支援模組與晶片型號 (Supported WiFi Modules & Chips)
+
+系統與二進制工具（`wpa_supplicant`, `hostapd`, `iw` 等）支援以下 11 款 WiFi 模組與晶片型號（以 `assets/default_modules.xml` 為唯一真理源）：
+
+| # | 模組名稱 | 晶片型號 (Chipset) | 頻段 (Bands) | 最高協定 (Max Protocol) | 核心驅動 (Kernel Driver) |
+|---|----------|-------------------|--------------|-------------------------|-------------------------|
+| 1 | Quectel FCM360W | MediaTek MT7663 | 2.4G / 5G | WiFi 5 (802.11ac) | `wlan_mt7663.ko` |
+| 2 | Quectel FC21 | Realtek RTL8821CU | 2.4G / 5G | WiFi 5 (802.11ac) | `8821cu.ko` |
+| 3 | Quectel FCS866R | Realtek RTL8852BS | 2.4G / 5G | WiFi 6 (802.11ax) | `8852bs.ko` |
+| 4 | Quectel FCE863R | Realtek RTL8852BE | 2.4G / 5G | WiFi 6 (802.11ax) | `8852be.ko` |
+| 5 | Quectel FCS945R | Realtek RTL8733BS | 2.4G / 5G | WiFi 6 (802.11ax) | `8733bs.ko` |
+| 6 | Quectel FCU741R | Realtek RTL8733BU | 2.4G / 5G | WiFi 6 (802.11ax) | `8733bu.ko` |
+| 7 | Quectel FCS961K-L | Aicsemi AIC8800 | 2.4G / 5G | WiFi 6 (802.11ax) | `aic8800_fdrv.ko` |
+| 8 | Quectel FC905A | Infineon CYW43455 | 2.4G / 5G | WiFi 5 (802.11ac) | `bcmdhd.ko` |
+| 9 | Quectel FGH200M | Morse Micro MM8108 | Sub-GHz | HaLow (802.11ah) | `morse.ko` (`dot11ah.ko`) |
+| 10 | Quectel FME164Q | Qualcomm QCA2064 | 2.4G / 5G | WiFi 6 (802.11ax) | `wlan.ko` |
+| 11 | Quectel FME170Q-865 | Qualcomm WCN7851-5 | 2.4G / 5G / 6G | WiFi 7 (802.11be 320M) | `wlan.ko` (`wlan_cnss_core_pcie.ko`) |
+
 ## 必需檔案
 
 1. **wpa_supplicant** (v2.10+)

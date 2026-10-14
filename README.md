@@ -127,19 +127,19 @@ su
 
 ## 支援模組
 
-| # | 模組 | 晶片 / 核心模組 | 頻段 | 最高協議 | 狀態 |
-|---|------|----------------|------|----------|------|
-| 1 | Quectel FCM360W | RTL8720DF | 2.4G/5G | WiFi 4 (n) | ⏳ 待驗證 |
-| 2 | Quectel FC21 | FC21 | 2.4G | WiFi 4 (b/g/n) | ⏳ 待驗證 |
-| 3 | Quectel FCS866R | RTL8852BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 4 | Quectel FCE863R | RTL8852BE | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 5 | Quectel FCS945R | RTL8733BS | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 6 | Quectel FCU741R | RTL8822CU | 2.4G/5G | WiFi 5 (ac) | ⏳ 待驗證 |
-| 7 | Quectel FCS961KL | QCA6696 / WCN3990 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 8 | Quectel FC905A | RTL8189FS | 2.4G | WiFi 4 (b/g/n) | ✅ 已驗證 |
-| 9 | Quectel FGH200M | MM8108 | Sub-GHz | HaLow (ah) | ✅ 已驗證 |
-| 10 | Quectel FME164Q | QCA2064 / QCA2066 | 2.4G/5G | WiFi 6 (ax) | ✅ 已驗證 |
-| 11 | Quectel FME170Q-865 | QCA2076 / WCN7850 | 2.4G/5G/6G | WiFi 7 (be) 320M | ✅ 已驗證 (29/29 AP 實測通過) |
+| # | 模組名稱 | 晶片型號 (Chipset) | 頻段 | 最高協定 | 核心驅動 |
+|---|----------|-------------------|------|----------|----------|
+| 1 | Quectel FCM360W | MediaTek MT7663 | 2.4G/5G | WiFi 5 (802.11ac) | `wlan_mt7663.ko` |
+| 2 | Quectel FC21 | Realtek RTL8821CU | 2.4G/5G | WiFi 5 (802.11ac) | `8821cu.ko` |
+| 3 | Quectel FCS866R | Realtek RTL8852BS | 2.4G/5G | WiFi 6 (802.11ax) | `8852bs.ko` |
+| 4 | Quectel FCE863R | Realtek RTL8852BE | 2.4G/5G | WiFi 6 (802.11ax) | `8852be.ko` |
+| 5 | Quectel FCS945R | Realtek RTL8733BS | 2.4G/5G | WiFi 6 (802.11ax) | `8733bs.ko` |
+| 6 | Quectel FCU741R | Realtek RTL8733BU | 2.4G/5G | WiFi 6 (802.11ax) | `8733bu.ko` |
+| 7 | Quectel FCS961K-L | Aicsemi AIC8800 | 2.4G/5G | WiFi 6 (802.11ax) | `aic8800_fdrv.ko` |
+| 8 | Quectel FC905A | Infineon CYW43455 | 2.4G/5G | WiFi 5 (802.11ac) | `bcmdhd.ko` |
+| 9 | Quectel FGH200M | Morse Micro MM8108 | Sub-GHz | HaLow (802.11ah) | `morse.ko` (`dot11ah.ko`) |
+| 10 | Quectel FME164Q | Qualcomm QCA2064 | 2.4G/5G | WiFi 6 (802.11ax) | `wlan.ko` |
+| 11 | Quectel FME170Q-865 | Qualcomm WCN7851-5 | 2.4G/5G/6G | WiFi 7 (802.11be 320M) | `wlan.ko` (`wlan_cnss_core_pcie.ko`) |
 
 ## 技術細節
 
@@ -150,6 +150,6 @@ su
 
 ---
 
-**版本**: V1.14  
-**維護**: WiFi 驅動團隊 (Updated: 2026-10-12)
+**版本**: V1.15  
+**維護**: WiFi 驅動團隊 (Updated: 2026-10-14)
 

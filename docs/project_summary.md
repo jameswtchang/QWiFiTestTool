@@ -270,5 +270,15 @@
   * 增加版本漂移防呆提示：若板端外部檔案與內嵌預設版本內容不同，自動輸出 `[INFO] 偵測到自訂外部配置 (與程式內嵌版本不同)`，防止舊檔案遮蔽新版本行為。
   * 淨化工作流：移除 `build.bat`、`build.sh` 與 `.agent/workflows/deploy.md` 內的 XML 複製包袱。
 
+---
+
+## 11. 最新更新 (2026-10-14) — V1.15 (支援模組晶片型號全面校準對齊與文檔規範化)
+
+* **晶片型號全面校驗與文檔規範化** (`README.md`, `internal/sys/README.md`, `assets/android_arm64/README.md`)：
+  * 依據 `assets/default_modules.xml` 定義，全面校準全系統 11 款模組的晶片型號、最高協定與內核驅動檔名。
+  * 修正過去文檔中錯誤標註的晶片型號（如 FCM360W 修正為 MediaTek MT7663、FC21 修正為 Realtek RTL8821CU、FCU741R 修正為 Realtek RTL8733BU、FCS961K-L 修正為 Aicsemi AIC8800、FC905A 修正為 Infineon CYW43455 等）。
+  * 在 `internal/sys/README.md` 與 `assets/android_arm64/README.md` 建立標準化「支援模組與晶片型號」對照表，方便工程師與現場測試人員快速對照。
+
+
 
 
