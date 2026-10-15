@@ -4,15 +4,29 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"qwifitesttool/internal/i18n"
+	"qwifitesttool/internal/sys"
 	"qwifitesttool/internal/ui"
 )
+
+// iwPath resolves the iw binary once ($PATH -> tool dir -> system dirs incl. extracted assets).
+// Stock Android usually has no iw in $PATH, so a bare "iw" exec would always fail there.
+var iwPath = sync.OnceValue(func() string {
+	return sys.FindCommand("iw", "iw")
+})
+
+// iwAvailable reports whether the resolved iw binary can actually be executed
+func iwAvailable() bool {
+	_, err := exec.LookPath(iwPath())
+	return err == nil
+}
 
 // ShowInterfaceDetail displays detailed interface information using 'iw'
 func ShowInterfaceDetail(iface string) {
 	// Execute 'iw dev <iface> info'
-	cmd := exec.Command("iw", "dev", iface, "info")
+	cmd := exec.Command(iwPath(), "dev", iface, "info")
 	output, err := cmd.Output()
 	if err != nil {
 		return

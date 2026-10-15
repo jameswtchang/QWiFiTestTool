@@ -39,7 +39,7 @@ func (c *Connector) checkConnectionStatus() (bool, string) {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "ssid=") {
 			ssid := strings.TrimPrefix(line, "ssid=")
-			return true, strings.TrimSpace(ssid)
+			return true, decodeWpaString(strings.TrimSpace(ssid))
 		}
 	}
 
@@ -127,7 +127,7 @@ func (c *Connector) showConnectionInfo() {
 	// iface is already defined above
 
 	// 3. SSID & BSSID
-	ssid := statusMap["ssid"]
+	ssid := decodeWpaString(statusMap["ssid"])
 	bssid := statusMap["bssid"]
 
 	// 4. Connection State
@@ -170,7 +170,7 @@ func (c *Connector) showConnectionInfo() {
 
 	// 6. Channel / Band info
 	var iwChannel string
-	if iwOut, err := exec.Command("iw", "dev", iface, "info").Output(); err == nil {
+	if iwOut, err := exec.Command(iwPath(), "dev", iface, "info").Output(); err == nil {
 		for _, line := range strings.Split(string(iwOut), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "channel ") {
@@ -182,7 +182,7 @@ func (c *Connector) showConnectionInfo() {
 
 	// 7. Signal & Bitrate
 	var signalStr, txBitrate, rxBitrate string
-	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
+	if linkOut, err := exec.Command(iwPath(), "dev", iface, "link").Output(); err == nil {
 		for _, line := range strings.Split(string(linkOut), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "signal: ") {

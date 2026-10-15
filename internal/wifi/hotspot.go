@@ -3,6 +3,7 @@ package wifi
 import (
 
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -31,15 +32,17 @@ type Hotspot struct {
 	dnsmasqCmd    *exec.Cmd
 	hostapdLog    *logger.TimestampWriter
 	dnsmasqLog    *logger.TimestampWriter
+	svc           *sys.ServiceManager // Android framework takeover (nil-safe no-op on Linux)
 }
 
 // NewHotspot creates a new hotspot instance
-func NewHotspot(module *models.WiFiModule, hostapdPath string) *Hotspot {
+func NewHotspot(module *models.WiFiModule, hostapdPath string, svc *sys.ServiceManager) *Hotspot {
 	return &Hotspot{
 		module:      module,
 		hostapdPath: hostapdPath,
 		dnsmasqPath: sys.FindCommand("dnsmasq", "/usr/sbin/dnsmasq"),
 		logDir:      "/tmp/wifi_logs",
+		svc:         svc,
 	}
 }
 
@@ -170,12 +173,14 @@ func (h *Hotspot) printConfigContent(name, path string) {
 
 // startServices starts hostapd and dnsmasq with logging
 func (h *Hotspot) startServices() error {
-	// Clean up conflicting daemons and stale interfaces before starting AP
-	exec.Command("killall", "-9", "wpa_supplicant").Run()
-	exec.Command("killall", "-9", "wpa_supplicant_s1g").Run()
-	exec.Command("killall", "-9", "hostapd").Run()
-	exec.Command("killall", "-9", "hostapd_s1g").Run()
-	exec.Command("killall", "-9", "dnsmasq").Run()
+	// Take over WiFi from the Android framework; otherwise it keeps the interface in managed mode
+	if err := h.svc.DisableAndroidWiFi(); err != nil {
+		fmt.Printf("[WARN] Android WiFi takeover failed: %v\n", err)
+	}
+
+	// Clean up conflicting daemons on this interface before starting AP
+	// (instances explicitly bound only to other interfaces are kept)
+	h.killInterfaceDaemons(h.module.Kernel.GetInterface())
 	time.Sleep(300 * time.Millisecond)
 
 	// Create log directory
@@ -239,7 +244,17 @@ func (h *Hotspot) startServices() error {
 		case <-time.After(1 * time.Second):
 		}
 
-		out, err := exec.Command("iw", "dev", h.module.Kernel.GetInterface(), "info").Output()
+		// Without iw (e.g. stock Android) the nl80211 iftype cannot be queried;
+		// fall back to hostapd's own state machine as the readiness signal.
+		if !iwAvailable() {
+			if h.hostapdEnabled(hostapdLog) {
+				apReady = true
+				break
+			}
+			continue
+		}
+
+		out, err := exec.Command(iwPath(), "dev", h.module.Kernel.GetInterface(), "info").Output()
 		if err != nil {
 			continue
 		}
@@ -307,6 +322,21 @@ func (h *Hotspot) startServices() error {
 	return nil
 }
 
+// netmaskToPrefix converts a dotted IPv4 netmask (e.g. 255.255.255.128) to its prefix
+// length (25), rejecting non-contiguous or malformed masks so the interface address
+// never disagrees with the subnet dnsmasq hands out.
+func netmaskToPrefix(mask string) (int, error) {
+	ip := net.ParseIP(strings.TrimSpace(mask)).To4()
+	if ip == nil {
+		return 0, fmt.Errorf("invalid netmask %q in XML <Network>", mask)
+	}
+	ones, bits := net.IPMask(ip).Size()
+	if bits == 0 {
+		return 0, fmt.Errorf("non-contiguous netmask %q in XML <Network>", mask)
+	}
+	return ones, nil
+}
+
 // setupInterfaceIP sets the IP address on the wireless interface
 func (h *Hotspot) setupInterfaceIP() error {
 	iface := h.module.Kernel.GetInterface()
@@ -314,13 +344,14 @@ func (h *Hotspot) setupInterfaceIP() error {
 	// Read gateway from XML Network config, fallback to default
 	gateway := "192.168.50.1"
 	netmask := 24
-	if net := h.module.APConfig.Network; net != nil && net.Gateway != "" {
-		gateway = net.Gateway
-		// Derive prefix length from netmask
-		if net.Netmask == "255.255.255.0" {
-			netmask = 24
-		} else if net.Netmask == "255.255.0.0" {
-			netmask = 16
+	if nw := h.module.APConfig.Network; nw != nil && nw.Gateway != "" {
+		gateway = nw.Gateway
+		if nw.Netmask != "" {
+			prefix, err := netmaskToPrefix(nw.Netmask)
+			if err != nil {
+				return err
+			}
+			netmask = prefix
 		}
 	}
 	gatewayIP := fmt.Sprintf("%s/%d", gateway, netmask)
@@ -379,7 +410,7 @@ func (h *Hotspot) setRegulatoryDomain() {
 	}
 
 	fmt.Println(i18n.Tf("hotspot.set_regdomain", countryCode))
-	cmd := exec.Command("iw", "reg", "set", countryCode)
+	cmd := exec.Command(iwPath(), "reg", "set", countryCode)
 	cmdStr := fmt.Sprintf("iw reg set %s", countryCode)
 	fmt.Printf("[CMD] %s\n", cmdStr)
 	if err := cmd.Run(); err != nil {
@@ -511,6 +542,41 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 // hostapd stdout is a pipe (fully buffered stdio), so completion events may lag;
 // the log fallback is only trusted for the first 70s to avoid a false timeout.
 func (h *Hotspot) dfsCACPending(logPath string, elapsedSec int) bool {
+	if state := h.hostapdState(); state != "" {
+		return state != "ENABLED"
+	}
+
+	if elapsedSec >= 70 {
+		return false
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return false
+	}
+	logStr := string(data)
+	if !strings.Contains(logStr, "DFS-CAC-START") {
+		return false
+	}
+	return !strings.Contains(logStr, "AP-ENABLED") && !strings.Contains(logStr, "DFS-CAC-COMPLETED success=1")
+}
+
+// hostapdEnabled reports whether hostapd has reached state=ENABLED (beaconing).
+// Uses hostapd_cli first, then the AP-ENABLED event in the hostapd log.
+func (h *Hotspot) hostapdEnabled(logPath string) bool {
+	if state := h.hostapdState(); state != "" {
+		return state == "ENABLED"
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "AP-ENABLED")
+}
+
+// hostapdState queries "hostapd_cli status" and returns the state= value
+// (e.g. ENABLED, DFS, COUNTRY_UPDATE), or "" if it cannot be determined.
+// The hostapd_cli sibling of hostapdPath is preferred (hostapd_s1g -> hostapd_cli_s1g).
+func (h *Hotspot) hostapdState() string {
 	iface := h.module.Kernel.GetInterface()
 
 	ctrlDir := ""
@@ -540,29 +606,20 @@ func (h *Hotspot) dfsCACPending(logPath string, elapsedSec int) bool {
 		cliPath = sys.FindCommandOrEmpty("hostapd_cli")
 	}
 
-	if cliPath != "" && ctrlDir != "" {
-		if out, err := exec.Command(cliPath, "-p", ctrlDir, "-i", iface, "status").Output(); err == nil {
-			for _, line := range strings.Split(string(out), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "state=") {
-					return strings.TrimPrefix(line, "state=") != "ENABLED"
-				}
-			}
+	if cliPath == "" || ctrlDir == "" {
+		return ""
+	}
+	out, err := exec.Command(cliPath, "-p", ctrlDir, "-i", iface, "status").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "state=") {
+			return strings.TrimPrefix(line, "state=")
 		}
 	}
-
-	if elapsedSec >= 70 {
-		return false
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		return false
-	}
-	logStr := string(data)
-	if !strings.Contains(logStr, "DFS-CAC-START") {
-		return false
-	}
-	return !strings.Contains(logStr, "AP-ENABLED") && !strings.Contains(logStr, "DFS-CAC-COMPLETED success=1")
+	return ""
 }
 
 // startHostapd starts the hostapd daemon
@@ -809,6 +866,18 @@ func saveDmesg(logPath, phase string) {
 	f.Write(output)
 }
 
+// killInterfaceDaemons kills wpa_supplicant/hostapd instances that may control iface
+// (bound to it, or with unknown binding) and dnsmasq instances serving iface.
+func (h *Hotspot) killInterfaceDaemons(iface string) {
+	hostapdNames := []string{"hostapd", "hostapd_s1g"}
+	if base := filepath.Base(h.hostapdPath); base != "." && base != "hostapd" && base != "hostapd_s1g" {
+		hostapdNames = append(hostapdNames, base)
+	}
+	sys.KillDaemonsForIface([]string{"wpa_supplicant", "wpa_supplicant_s1g"}, iface)
+	sys.KillDaemonsForIface(hostapdNames, iface)
+	sys.KillProcsForIface([]string{"dnsmasq"}, iface)
+}
+
 // Stop stops all services
 func (h *Hotspot) Stop() error {
 	// Kill tracked processes first
@@ -830,15 +899,11 @@ func (h *Hotspot) Stop() error {
 		h.hostapdLog = nil
 	}
 
-	// Kill any remaining system-wide instances
-	exec.Command("killall", "-9", "wpa_supplicant").Run()
-	exec.Command("killall", "-9", "wpa_supplicant_s1g").Run()
-	exec.Command("killall", "-9", "hostapd").Run()
-	exec.Command("killall", "-9", "hostapd_s1g").Run()
-	exec.Command("killall", "-9", "dnsmasq").Run()
-
 	// Tear down the wireless interface to fully remove the AP
 	iface := h.module.Kernel.GetInterface()
+
+	// Kill any remaining instances on this interface
+	h.killInterfaceDaemons(iface)
 	fmt.Printf("[CMD] ip addr flush dev %s\n", iface)
 	exec.Command("ip", "addr", "flush", "dev", iface).Run()
 	fmt.Printf("[CMD] ip link set %s down\n", iface)

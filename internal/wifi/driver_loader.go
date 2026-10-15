@@ -148,12 +148,11 @@ func findAndInsmod(koName, args string) error {
 func UnloadDriver(module *models.WiFiModule) error {
 	iface := module.Kernel.GetInterface()
 
-	// 1. Terminate user-space processes holding the network interface
-	procsToKill := []string{"wpa_supplicant", "wpa_supplicant_s1g", "hostapd", "hostapd_s1g", "dnsmasq", "udhcpc", "dhclient"}
-	for _, proc := range procsToKill {
-		exec.Command("killall", "-9", proc).Run()
-		exec.Command("pkill", "-9", proc).Run()
-	}
+	// 1. Terminate user-space processes holding the network interface:
+	//    wpa_supplicant/hostapd bound to it (or with unknown binding), DHCP clients/dnsmasq bound to it.
+	//    Daemons serving other interfaces (e.g. eth0's DHCP lease) are kept.
+	sys.KillDaemonsForIface([]string{"wpa_supplicant", "wpa_supplicant_s1g", "hostapd", "hostapd_s1g"}, iface)
+	sys.KillProcsForIface([]string{"udhcpc", "dhclient", "dnsmasq"}, iface)
 
 	// 2. Bring down the interface and flush addresses/routes so netdevice refcount drops
 	if iface != "" {
@@ -176,7 +175,7 @@ func UnloadDriver(module *models.WiFiModule) error {
 		outStr := string(output)
 		// If module was not currently loaded, continue to preloads instead of aborting
 		if strings.Contains(outStr, "not currently loaded") || strings.Contains(outStr, "No such file") {
-			fmt.Println(i18n.Tf("drv.already_loaded", moduleName))
+			fmt.Println(i18n.Tf("drv.not_loaded", moduleName))
 		} else {
 			return fmt.Errorf(i18n.T("drv.unload_fail"), outStr, err)
 		}

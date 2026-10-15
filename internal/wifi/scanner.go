@@ -111,22 +111,33 @@ func (s *Scanner) parseScanResults(output string) []ScanResult {
 			continue
 		}
 
-		// Format: bssid / frequency / signal level / flags / ssid
-		fields := strings.Fields(line)
+		// Format: bssid \t frequency \t signal level \t flags \t ssid
+		// Fields are tab-separated; the SSID may contain spaces and is printf-escaped
+		// by wpa_cli (\xNN for UTF-8 / non-printable bytes), so decode it to raw bytes.
+		line = strings.TrimRight(line, "\r")
+		fields := strings.SplitN(line, "\t", 5)
 		if len(fields) < 5 {
-			continue
+			// Fallback for non-tab output (legacy behaviour): whitespace-split,
+			// SSID is the remainder after the 4th field
+			ws := strings.Fields(line)
+			if len(ws) < 5 {
+				continue
+			}
+			ssidStart := strings.Index(line, ws[4])
+			fields = []string{ws[0], ws[1], ws[2], ws[3], strings.TrimSpace(line[ssidStart:])}
 		}
 
-		// SSID is the last field (may contain spaces)
-		ssidStart := strings.Index(line, fields[4])
-		ssid := strings.TrimSpace(line[ssidStart:])
+		ssid := decodeWpaString(fields[4])
+		if ssid == "" {
+			continue // Hidden network
+		}
 
 		results = append(results, ScanResult{
-			BSSID:     fields[0],
-			Frequency: fields[1],
-			Signal:    fields[2],
+			BSSID:     strings.TrimSpace(fields[0]),
+			Frequency: strings.TrimSpace(fields[1]),
+			Signal:    strings.TrimSpace(fields[2]),
 			SSID:      ssid,
-			Flags:     fields[3], // Store flags for security info
+			Flags:     strings.TrimSpace(fields[3]), // Store flags for security info
 		})
 	}
 

@@ -30,11 +30,15 @@ const (
 	iwName             = "iw"
 )
 
+// elfMagic is the 4-byte header of every ELF executable (0x7F 'E' 'L' 'F')
+var elfMagic = []byte{0x7f, 'E', 'L', 'F'}
+
 // BinaryManager handles extraction and path resolution of embedded binaries
 type BinaryManager struct {
 	platform      string
 	extractPath   string
 	binariesReady bool
+	extracted     map[string]bool // binaries actually extracted as valid ELF executables
 }
 
 // NewBinaryManager creates a new binary manager instance
@@ -48,6 +52,7 @@ func NewBinaryManager() *BinaryManager {
 		platform:      platform,
 		extractPath:   getExtractPath(platform),
 		binariesReady: false,
+		extracted:     make(map[string]bool),
 	}
 }
 
@@ -72,15 +77,20 @@ func (bm *BinaryManager) Initialize() error {
 	}
 
 	for name, data := range binaries {
-		if len(data) == 0 {
-			fmt.Printf("[WARN] Binary %s is empty, skipping extraction\n", name)
+		targetPath := filepath.Join(bm.extractPath, name)
+
+		// Embedded assets may still be text placeholders; extracting them would yield
+		// an "executable" that fails with exec format error. Fall back to system binaries.
+		if !isELF(data) {
+			fmt.Printf("[WARN] Embedded %s is not a valid ELF binary (placeholder), using system binary instead\n", name)
+			removeStalePlaceholder(targetPath)
 			continue
 		}
 
-		targetPath := filepath.Join(bm.extractPath, name)
 		if err := extractBinary(targetPath, data); err != nil {
 			return fmt.Errorf("failed to extract %s: %w", name, err)
 		}
+		bm.extracted[name] = true
 		fmt.Printf("[INFO] Extracted %s to %s\n", name, targetPath)
 	}
 
@@ -90,8 +100,11 @@ func (bm *BinaryManager) Initialize() error {
 
 // GetWpaSupplicantPath returns the absolute path to wpa_supplicant
 func (bm *BinaryManager) GetWpaSupplicantPath() string {
-	if bm.platform == "android" {
+	if bm.extracted[wpaSupplicantName] {
 		return filepath.Join(bm.extractPath, wpaSupplicantName)
+	}
+	if bm.platform == "android" {
+		return FindCommand("wpa_supplicant", "/vendor/bin/hw/wpa_supplicant")
 	}
 	// Try to find in PATH first, then use common paths
 	return FindCommand("wpa_supplicant", "/usr/sbin/wpa_supplicant")
@@ -107,8 +120,11 @@ func (bm *BinaryManager) GetWpaSupplicantPathFor(module *models.WiFiModule) stri
 
 // GetHostapdPath returns the absolute path to hostapd
 func (bm *BinaryManager) GetHostapdPath() string {
-	if bm.platform == "android" {
+	if bm.extracted[hostapdName] {
 		return filepath.Join(bm.extractPath, hostapdName)
+	}
+	if bm.platform == "android" {
+		return FindCommand("hostapd", "/vendor/bin/hw/hostapd")
 	}
 	return FindCommand("hostapd", "/usr/sbin/hostapd")
 }
@@ -131,7 +147,7 @@ func (bm *BinaryManager) GetWpaCliPath() string {
 
 // GetIwPath returns the absolute path to iw tool
 func (bm *BinaryManager) GetIwPath() string {
-	if bm.platform == "android" {
+	if bm.extracted[iwName] {
 		return filepath.Join(bm.extractPath, iwName)
 	}
 	return FindCommand("iw", "/usr/sbin/iw")
@@ -156,6 +172,26 @@ func extractBinary(targetPath string, data []byte) error {
 
 	// Set executable permissions
 	return os.Chmod(targetPath, 0755)
+}
+
+// isELF reports whether data starts with the ELF magic header
+func isELF(data []byte) bool {
+	return bytes.HasPrefix(data, elfMagic)
+}
+
+// removeStalePlaceholder deletes a non-ELF file left at path by older tool versions,
+// so FindCommand never resolves to a previously extracted placeholder.
+func removeStalePlaceholder(path string) {
+	head := make([]byte, len(elfMagic))
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	n, _ := io.ReadFull(f, head)
+	f.Close()
+	if !isELF(head[:n]) {
+		_ = os.Remove(path)
+	}
 }
 
 // getExtractPath returns the platform-specific extraction path

@@ -28,16 +28,18 @@ type Connector struct {
 	wpaCmd        *exec.Cmd
 	log           *logger.SessionLogger
 	wpaLog        *logger.TimestampWriter
+	svc           *sys.ServiceManager // Android framework takeover (nil-safe no-op on Linux)
 }
 
 // NewConnector creates a new connector instance
-func NewConnector(module *models.WiFiModule, wpaSupplicantPath, wpaCliPath, ctrlInterface string) *Connector {
+func NewConnector(module *models.WiFiModule, wpaSupplicantPath, wpaCliPath, ctrlInterface string, svc *sys.ServiceManager) *Connector {
 	return &Connector{
 		module:        module,
 		wpaSupplicant: wpaSupplicantPath,
 		wpaCliPath:    wpaCliPath,
 		ctrlInterface: ctrlInterface,
 		daemonStarted: false,
+		svc:           svc,
 	}
 }
 
@@ -267,13 +269,17 @@ func (c *Connector) startDaemon() error {
 		}
 	}
 
-	// Clean up conflicting AP daemons before starting client mode
-	exec.Command("killall", "-9", "hostapd").Run()
-	exec.Command("killall", "-9", "hostapd_s1g").Run()
-	exec.Command("killall", "-9", "dnsmasq").Run()
+	// Take over WiFi from the Android framework so its wpa_supplicant does not own the interface
+	if err := c.svc.DisableAndroidWiFi(); err != nil {
+		fmt.Printf("[WARN] Android WiFi takeover failed: %v\n", err)
+	}
+
+	// Clean up conflicting AP daemons on this interface before starting client mode
+	sys.KillDaemonsForIface([]string{"hostapd", "hostapd_s1g"}, iface)
+	sys.KillProcsForIface([]string{"dnsmasq"}, iface)
 
 	exec.Command("ip", "link", "set", iface, "down").Run()
-	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
+	exec.Command(iwPath(), "dev", iface, "set", "type", "managed").Run()
 
 	args := []string{
 		"-i", iface,
@@ -436,13 +442,17 @@ func (c *Connector) startDaemonForScan() error {
 	iface := c.module.Kernel.GetInterface()
 	driver := c.module.Kernel.GetDriverBackend()
 
-	// Clean up conflicting AP daemons before starting scan mode
-	exec.Command("killall", "-9", "hostapd").Run()
-	exec.Command("killall", "-9", "hostapd_s1g").Run()
-	exec.Command("killall", "-9", "dnsmasq").Run()
+	// Take over WiFi from the Android framework so its wpa_supplicant does not own the interface
+	if err := c.svc.DisableAndroidWiFi(); err != nil {
+		fmt.Printf("[WARN] Android WiFi takeover failed: %v\n", err)
+	}
+
+	// Clean up conflicting AP daemons on this interface before starting scan mode
+	sys.KillDaemonsForIface([]string{"hostapd", "hostapd_s1g"}, iface)
+	sys.KillProcsForIface([]string{"dnsmasq"}, iface)
 
 	exec.Command("ip", "link", "set", iface, "down").Run()
-	exec.Command("iw", "dev", iface, "set", "type", "managed").Run()
+	exec.Command(iwPath(), "dev", iface, "set", "type", "managed").Run()
 
 	// Create minimal config for scanning
 	minimalConfig := fmt.Sprintf(`ctrl_interface=%s
@@ -612,6 +622,11 @@ func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 		c.log.LogEvent("Connect to network: SSID=%s, flags=%s, iface=%s", ssid, flags, iface)
 	}
 
+	// Reject an invalid password before stopping the running daemon
+	if err := validateCredential(password, flags); err != nil {
+		return fmt.Errorf(i18n.T("conn.update_config_fail"), err)
+	}
+
 	fmt.Println(i18n.Tf("conn.connecting_to", ssid))
 	fmt.Println("\n" + i18n.T("conn.net_config_start"))
 
@@ -706,7 +721,8 @@ func (c *Connector) Stop() error {
 		c.wpaCmd = nil
 	}
 
-	// 3. Kill wpa_supplicant processes via both killall and pkill (-9)
+	// 3. Kill wpa_supplicant instances that may control this interface
+	//    (bound to it, or global/D-Bus mode); instances bound only to other interfaces are kept
 	procsToKill := []string{"wpa_supplicant", "wpa_supplicant_s1g"}
 	if c.wpaSupplicant != "" {
 		base := filepath.Base(c.wpaSupplicant)
@@ -714,22 +730,14 @@ func (c *Connector) Stop() error {
 			procsToKill = append(procsToKill, base)
 		}
 	}
-	for _, proc := range procsToKill {
-		exec.Command("killall", "-9", proc).Run()
-		exec.Command("pkill", "-9", proc).Run()
-	}
+	sys.KillDaemonsForIface(procsToKill, iface)
 
-	// 4. Kill DHCP clients (udhcpc, dhclient)
-	for _, dhcp := range []string{"udhcpc", "dhclient"} {
-		exec.Command("killall", "-9", dhcp).Run()
-		exec.Command("pkill", "-9", dhcp).Run()
-	}
+	// 4. Kill DHCP clients bound to this interface only (keep e.g. eth0's lease renewal alive)
+	sys.KillProcsForIface([]string{"udhcpc", "dhclient"}, iface)
 
-	// 5. Kill conflicting AP daemons (hostapd, dnsmasq)
-	for _, apProc := range []string{"hostapd", "hostapd_s1g", "dnsmasq"} {
-		exec.Command("killall", "-9", apProc).Run()
-		exec.Command("pkill", "-9", apProc).Run()
-	}
+	// 5. Kill conflicting AP daemons on this interface (hostapd, dnsmasq)
+	sys.KillDaemonsForIface([]string{"hostapd", "hostapd_s1g"}, iface)
+	sys.KillProcsForIface([]string{"dnsmasq"}, iface)
 
 	// 6. Flush IP addresses and routing table on interface, and bring link down
 	exec.Command("ip", "addr", "flush", "dev", iface).Run()

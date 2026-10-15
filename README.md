@@ -23,6 +23,10 @@
 ✅ **驅動參數運行時校驗 (V1.14)**: Sanity Check 擴充 PreloadKo 依賴支援與 `/sys/module/.../parameters` 參數比對，提示即時 reload  
 ✅ **多層級執行檔解析 (V1.14)**: 四層搜尋策略 (`$PATH` ➔ 自身目錄 ➔ `/usr/sbin` 系統目錄 ➔ fallback)，徹底根除 PATH 盲區  
 ✅ **XML 單一真理源重構 (V1.14)**: 透過 `package assets` 原生嵌入，徹底根除雙檔案同步陷阱，IDE Run / Debug / go build 即改即生效  
+✅ **網卡範圍行程清理 (V1.16)**: STA/AP 啟停、驅動卸載不再全域 `killall`，只清理綁定目標網卡 (或未宣告網卡) 的 wpa_supplicant / hostapd / dnsmasq / DHCP client，eth0 等其他網卡的 DHCP 租約與服務不受影響  
+✅ **中文 / 特殊字元 SSID 連線 (V1.16)**: 解碼 `wpa_cli` 的 `\xNN` 跳脫，非 ASCII SSID 以 hex 寫入 `wpa_supplicant.conf`；WPA-PSK 密碼長度與 64 位 hex PSK 格式預先校驗  
+✅ **AP 子網路遮罩完整支援 (V1.16)**: XML `<Netmask>` 任意合法遮罩 (如 /25、/22) 正確換算，非法遮罩直接報錯  
+✅ **Android 平台修正 (V1.16，尚未實機驗證)**: 內嵌佔位執行檔 ELF 校驗與系統 fallback、無 `iw` 時以 hostapd 狀態判定 AP 就緒、啟動 daemon 前接管 / 結束時還原 Android WiFi framework  
 
 ## 目錄結構
 
@@ -41,8 +45,9 @@ QWifiTestTool/
 │   ├── wifi/                # WiFi 操作邏輯 (Hotspot/Connection)
 │   └── ui/                  # 終端使用者介面
 ├── docs/                    # 專案設計與架構文檔
-├── scripts/                 # 自動化端到端 (E2E) 測試套件 (e2e_wifi_test.ps1)
-└── .agent/workflows/        # 自動化工作流 (deploy/push/sync)
+├── scripts/                 # E2E 測試套件 (e2e_wifi_test.ps1) 與板端清理腳本 (qwt_board_cleanup.sh)
+├── .claude/skills/          # Claude Code 工作流 (/deploy /push /sync /verify-hardware)
+└── .agent/workflows/        # 其他 AI IDE 工作流 (deploy/push/sync/verify_hardware，內容需與 .claude/skills 同步)
 ```
 
 ## 快速開始
@@ -145,11 +150,11 @@ su
 
 - **頻道資訊庫**: 內嵌 4000+ 行 `country_channel_lookup.json`。
 - **Zero-Dependency**: 僅依賴 Go 標準庫，適合嵌入式系統。
-- **進程管理**: 使用 Process Group 確保子進程 (hostapd/dnsmasq) 完全終止。
+- **進程管理**: 直接終止自身啟動的子行程 (hostapd/dnsmasq/wpa_supplicant)，再依 `/proc/<pid>/cmdline` 與設定檔清理綁定目標網卡的殘留 daemon，不影響其他網卡的服務。
 - **CJK 對齊引擎**: 自行實作 East Asian Width 視覺寬度計算，確保中英文標籤在終端機對齊。
 
 ---
 
-**版本**: V1.15  
-**維護**: WiFi 驅動團隊 (Updated: 2026-10-14)
+**版本**: V1.16  
+**維護**: WiFi 驅動團隊 (Updated: 2026-10-15)
 

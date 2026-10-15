@@ -279,6 +279,43 @@
   * 修正過去文檔中錯誤標註的晶片型號（如 FCM360W 修正為 MediaTek MT7663、FC21 修正為 Realtek RTL8821CU、FCU741R 修正為 Realtek RTL8733BU、FCS961K-L 修正為 Aicsemi AIC8800、FC905A 修正為 Infineon CYW43455 等）。
   * 在 `internal/sys/README.md` 與 `assets/android_arm64/README.md` 建立標準化「支援模組與晶片型號」對照表，方便工程師與現場測試人員快速對照。
 
+## 12. 最新更新 (2026-10-15) — V1.16 (網卡範圍行程清理、中文 SSID 連線、Android 平台修正與 Claude Code 工作流)
+
+### 12.1 網卡範圍行程清理 (`internal/sys/proc_iface.go`)
+* **問題**：STA/AP 啟停與驅動卸載原本對 `wpa_supplicant`、`hostapd`、`dnsmasq`、`udhcpc`、`dhclient` 全域 `killall -9`，會連帶殺掉 eth0 的 DHCP client (租約到期斷網) 與其他網卡的服務。
+* **機制**：讀取 `/proc/<pid>/cmdline` 與 daemon 設定檔判定綁定網卡：
+  * DHCP client：僅殺 `-i <iface>` / 參數含 `<iface>` 者。
+  * `wpa_supplicant` / `hostapd`：殺綁定目標網卡者，以及未宣告網卡者 (D-Bus 模式、設定檔已刪除)；明確只綁其他網卡者保留。hostapd 解析位置參數設定檔與 `-i` / `-b`。
+  * `dnsmasq`：宣告介面 (`-i`、`interface=`) 含目標網卡，或完全未宣告介面 (wildcard / 僅 `listen-address`，如 FGH200M 的 `dnsmasq_bind_interfaces=0`) 即清理，避免殘留行程佔住 DHCP/DNS port。
+  * 改以 argv[0] 完整名稱比對，修正 `killall` 只比對 15 字元 comm、`wpa_supplicant_s1g` 僅靠 `pkill` 模糊比對誤中的問題。
+* Android framework 接管 (`service.go`) 維持全域處理。
+
+### 12.2 中文 / 特殊字元 SSID 與密碼校驗 (`internal/wifi/wpa_string.go`)
+* `wpa_cli scan_results` 改以 tab 切欄 (非 tab 輸出自動退回舊解析)，並解碼 `printf_encode` 跳脫 (`\xNN`、`\"`、`\\`、八進位)。
+* 非可列印 ASCII 的 SSID 以 hex (`ssid=e4b8ad...`) 寫入設定檔；WPA-PSK 密碼須 8–63 字元或 64 位 hex (hex 不加引號)，不合法時於停止 daemon 前即拒絕。
+* `freq_list` / `disable_*` 策略參數輸出順序固定。
+
+### 12.3 其他修正
+* AP 子網路遮罩改以 `net.IPMask` 換算任意合法遮罩，非法遮罩直接報錯 (原本僅識別 /24、/16)。
+* 驅動卸載時「未載入」誤顯示為「已載入」的訊息修正 (`drv.not_loaded`)。
+* `iw` 改經 `FindCommand` 解析路徑。
+
+### 12.4 Android 平台修正 (尚無 Android 板，未實機驗證)
+* 內嵌 `wpa_supplicant` / `hostapd` / `iw` 目前為文字佔位檔：解壓前檢查 ELF magic，無效時改用系統執行檔 (`/vendor/bin/hw/` 等) 並刪除舊版遺留佔位檔。
+* 無 `iw` 時以 `hostapd_cli status` (`state=ENABLED`) / `AP-ENABLED` 日誌判定 AP 就緒。
+* 啟動 daemon 前停用 Android WiFi framework，結束時還原 (保留 STA 連線或原本即關閉時不還原)。
+* 已知未處理：Android「Wi-Fi 掃描一律開啟」可能讓 framework 以 scan-only 模式保留 wpa_supplicant。
+
+### 12.5 E2E 測試與工作流
+* 新增 `scripts/qwt_board_cleanup.sh` (POSIX sh，規則與 12.1 一致)，E2E 測試啟動時自動推送；清理與 RF teardown 斷言改為只看測試網卡。
+* 新增 Linux 實體行程整合測試 (`internal/sys/proc_iface_linux_test.go`)，以假 daemon 驗證 Go 實作與 sh 腳本選出的 PID 一致。
+* 新增 Claude Code skills (`.claude/skills/`：`/deploy`、`/push`、`/sync`、`/verify-hardware`)，`.agent/workflows/` 保留。
+
+### 12.6 驗證成果 (Qualcomm FME170Q-865，Linux 5.10.160)
+* 單元測試全數通過；板端整合測試 16/16 PASS。
+* E2E：Phase 1 AP 矩陣 29/29、Phase 2 STA 策略 11/11 (含實體 RF 掃描)、Phase 3 核心 RF 6/6 PASS。
+* 4 個綁定 eth9 的對照 daemon (udhcpc / dnsmasq / wpa_supplicant / hostapd，comm 與真實名稱相同) 於完整 E2E 全程存活。
+
 
 
 

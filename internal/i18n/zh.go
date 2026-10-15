@@ -323,6 +323,7 @@ var zhMessages = map[string]string{
 	"drv.preload_unloaded":    "[SUCCESS] 已卸載前置驅動: %s",
 	"drv.exec_cmd":            "[DEBUG] 執行命令: %s",
 	"drv.already_loaded":             "[INFO] 驅動已載入: %s",
+	"drv.not_loaded":                 "[INFO] 驅動未載入，略過卸載: %s",
 	"drv.already_loaded_params_warn": "[WARN] 模組 %s 已在內核中，指定的參數 (%s) 可能未更新。如需套用請先卸載再載入。",
 	"drv.insmod_fail":         "insmod 失敗: %s - %w",
 	"drv.loaded":              "[SUCCESS] 已載入驅動: %s",

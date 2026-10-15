@@ -729,11 +729,11 @@ func (e *WpaEditor) saveConfig(content string) error {
 func (e *WpaEditor) restartNetworkIfNeeded() error {
 	fmt.Println("\n" + i18n.T("wpa_ed.net_check"))
 
-	// Check if wpa_supplicant is running
-	checkCmd := exec.Command("pgrep", "-x", "wpa_supplicant")
-	output, err := checkCmd.Output()
-
-	if err != nil || len(output) == 0 {
+	// Check if a wpa_supplicant that may control this interface is running
+	// (bound to it, or global/D-Bus mode); instances on other interfaces are ignored
+	iface := e.module.Kernel.GetInterface()
+	supplicants := []string{"wpa_supplicant", "wpa_supplicant_s1g"}
+	if len(sys.FindDaemonsForIface(supplicants, iface)) == 0 {
 		fmt.Println(i18n.T("wpa_ed.net_not_running"))
 		return nil
 	}
@@ -750,15 +750,12 @@ func (e *WpaEditor) restartNetworkIfNeeded() error {
 	}
 
 	// Restart network interface
-	iface := e.module.Kernel.Interface
 	fmt.Printf(i18n.Tf("wpa_ed.net_restarting", iface)+"\n")
 
-	// Find necessary commands
 	ipPath := sys.FindCommand("ip", "/sbin/ip")
-	pkillPath := sys.FindCommand("pkill", "/usr/bin/pkill")
 
-	// Stop wpa_supplicant
-	exec.Command(pkillPath, "-9", "wpa_supplicant").Run()
+	// Stop wpa_supplicant on this interface only
+	sys.KillDaemonsForIface(supplicants, iface)
 
 	// Bring interface down and up
 	exec.Command(ipPath, "link", "set", iface, "down").Run()

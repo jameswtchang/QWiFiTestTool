@@ -21,9 +21,22 @@ func NewServiceManager(isAndroid bool) *ServiceManager {
 }
 
 // DisableAndroidWiFi disables Android framework WiFi services (Android 12-16)
+// It is idempotent and nil-safe, and only marks the framework for restoration
+// when WiFi was actually enabled before the takeover.
 func (sm *ServiceManager) DisableAndroidWiFi() error {
-	if !sm.isAndroid {
+	if sm == nil || !sm.isAndroid {
 		return nil // Nothing to do on Linux
+	}
+	if sm.disabled {
+		return nil // Already taken over in this session
+	}
+
+	// Android 11+: skip takeover if the user already turned WiFi off,
+	// so EnableAndroidWiFi does not turn it on unexpectedly at exit.
+	if out, err := exec.Command("cmd", "wifi", "status").CombinedOutput(); err == nil &&
+		strings.Contains(string(out), "Wifi is disabled") {
+		fmt.Println("[INFO] Android WiFi framework already disabled, no takeover needed")
+		return nil
 	}
 
 	fmt.Println("[INFO] Attempting to disable Android WiFi framework...")
@@ -49,7 +62,7 @@ func (sm *ServiceManager) DisableAndroidWiFi() error {
 
 // EnableAndroidWiFi re-enables Android framework WiFi services
 func (sm *ServiceManager) EnableAndroidWiFi() error {
-	if !sm.isAndroid || !sm.disabled {
+	if sm == nil || !sm.isAndroid || !sm.disabled {
 		return nil
 	}
 
@@ -109,5 +122,5 @@ func (sm *ServiceManager) tryCommand(name string, args []string) error {
 
 // IsDisabled returns true if WiFi framework has been disabled
 func (sm *ServiceManager) IsDisabled() bool {
-	return sm.disabled
+	return sm != nil && sm.disabled
 }

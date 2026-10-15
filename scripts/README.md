@@ -147,6 +147,7 @@ flowchart TD
 1. Windows 主機已安裝 PowerShell 5.1+ 與 Android SDK Platform Tools (`adb` 位於 PATH 中)。
 2. 開發板透過 USB/網口連線，確認 `adb devices` 狀態正常。
 3. 板端已部署可執行檔 `/data/local/tmp/QWifiTestTool`。
+4. `qwt_board_cleanup.sh` 與 `e2e_wifi_test.ps1` 位於同一目錄（測試啟動時自動推送到板端）。
 
 ### 範例指令
 
@@ -287,3 +288,22 @@ hostapd 內部邏輯強制要求：若宣告 `ieee80211h=1`，必須同時宣告
 - 移除各類建置腳本中複製 XML 的邏輯，徹底根絕 IDE/終端直接編譯時的幽靈不同步問題。
 - 執行期雙軌防護：板端外部 XML 優先讀取（現場免編譯調校），外部檔案不存在時無縫 fallback 內嵌資料（防漏推保底）。
 
+---
+
+## 9. V1.16 網卡範圍清理
+
+### 9.1 板端清理腳本 `qwt_board_cleanup.sh`
+- 原本 `Cleanup-Environment` 與 STA/RF 測項對 `udhcpc`、`dhclient`、`dnsmasq`、`wpa_supplicant`、`hostapd` 全域 `killall -9`，在 eth0 走 DHCP 的板子上會殺掉 eth0 的 DHCP client，租約到期後斷網。
+- 改由 `qwt_board_cleanup.sh <iface> [process-name ...]` 清理，規則與 QWifiTestTool 本體 (`internal/sys/proc_iface.go`) 一致：
+  - `QWifiTestTool`：一律清理。
+  - `udhcpc` / `dhclient`：僅清理綁定 `<iface>` 者。
+  - `dnsmasq`：宣告介面含 `<iface>`，或完全未宣告介面 (wildcard / 僅 `listen-address` / 設定檔已刪除) 時清理。
+  - `wpa_supplicant[_s1g]` / `hostapd[_s1g]`：綁定 `<iface>` 或未宣告網卡 (D-Bus 模式等) 時清理；明確只綁其他網卡者保留。
+- POSIX sh 實作 (bash / busybox ash 皆可)。腳本在推送前自動轉為 LF 換行，避免 CRLF checkout 導致板端執行失敗。
+- `--dry-run` 只列出 `PID 名稱`，不實際終止，可用於手動確認。
+
+### 9.2 RF teardown 斷言
+- 「hostapd 執行中 (Assertion 3)」與「停止後無殘留 (Assertion 4)」由全域 `pidof hostapd` 改為 `qwt_board_cleanup.sh --dry-run wlan0 hostapd hostapd_s1g`，只看測試網卡。
+
+### 9.3 驗證
+- 在板上放置 4 個綁定 eth9 的對照 daemon (comm 與真實名稱相同，舊版全域 `killall` 會殺掉)，完整 E2E 執行全程存活，且全部測項 PASS。

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"qwifitesttool/internal/i18n"
@@ -27,7 +28,10 @@ func updateWpaSupplicantConfig(configPath, ssid, password, flags string) error {
 	content = removeNetworkBlock(content)
 
 	// Build new network block based on scan flags and preserved policies
-	networkBlock := buildNetworkBlock(ssid, password, flags, policies)
+	networkBlock, err := buildNetworkBlock(ssid, password, flags, policies)
+	if err != nil {
+		return err
+	}
 
 	// Combine config
 	newConfig := content + "\n" + networkBlock
@@ -136,17 +140,21 @@ func deriveKeyMgmt(flags string) string {
 
 // buildNetworkBlock creates a network configuration block
 // flags is the raw flags string from wpa_cli scan_results
-func buildNetworkBlock(ssid, password, flags string, policies map[string]string) string {
+// ssid must be the raw (decoded) SSID bytes, not wpa_cli's \xNN-escaped form.
+func buildNetworkBlock(ssid, password, flags string, policies map[string]string) (string, error) {
 	var block strings.Builder
 
 	block.WriteString("network={\n")
-	block.WriteString(fmt.Sprintf(" ssid=\"%s\"\n", ssid))
+	block.WriteString(fmt.Sprintf(" ssid=%s\n", formatSSIDValue(ssid)))
 
 	keyMgmt := deriveKeyMgmt(flags)
 
 	if password == "" {
 		block.WriteString(" key_mgmt=NONE\n")
 	} else {
+		if err := validateCredential(password, flags); err != nil {
+			return "", err
+		}
 		if keyMgmt != "" {
 			block.WriteString(fmt.Sprintf(" key_mgmt=%s\n", keyMgmt))
 		}
@@ -154,18 +162,24 @@ func buildNetworkBlock(ssid, password, flags string, policies map[string]string)
 			block.WriteString(fmt.Sprintf(" sae_password=\"%s\"\n", password))
 			block.WriteString(" ieee80211w=2\n")
 		} else {
-			block.WriteString(fmt.Sprintf(" psk=\"%s\"\n", password))
+			psk, _ := formatPSKValue(password) // validated above
+			block.WriteString(fmt.Sprintf(" psk=%s\n", psk))
 		}
 	}
 
-	// Preserve policy constraints (freq_list, disable_*)
-	for k, v := range policies {
-		block.WriteString(fmt.Sprintf(" %s=%s\n", k, v))
+	// Preserve policy constraints (freq_list, disable_*) in a stable order
+	keys := make([]string, 0, len(policies))
+	for k := range policies {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		block.WriteString(fmt.Sprintf(" %s=%s\n", k, policies[k]))
 	}
 
 	block.WriteString("}\n")
 
-	return block.String()
+	return block.String(), nil
 }
 
 // printConfigFile displays the updated config file

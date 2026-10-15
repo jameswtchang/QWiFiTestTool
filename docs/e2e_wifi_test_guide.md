@@ -29,6 +29,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1
 - **`-ApOnly`**: 排除 STA 相關項目，專注 AP 模式。
 - **`-StaOnly`**: 排除 AP 相關項目，專注 STA 模式。
 
+## V1.16 網卡範圍清理
+
+- **板端清理腳本 `scripts/qwt_board_cleanup.sh`**：測試啟動時自動推送到 `/data/local/tmp/`（推送失敗即中止，不退回全域 `killall`）。只清理綁定 `wlan0`（或未宣告網卡）的 wpa_supplicant / hostapd / dnsmasq / DHCP client，eth0 等其他網卡的服務不受影響。需與 `e2e_wifi_test.ps1` 放在同一目錄。
+- **RF teardown 斷言範圍收斂**：「hostapd 執行中」與「停止後無殘留」改為只看測試網卡，板上其他網卡的 hostapd 不再造成誤判 FAIL。
+- **手動驗證**：`sh /data/local/tmp/qwt_board_cleanup.sh --dry-run wlan0` 只列出將被清理的 PID，不實際終止。
+
 ## V1.14 穩健性與架構改進
 
 - **雙軌配置生成統一與 WPA3 自動防護**：收斂 `generator.go` 與 `wpa_editor.go`，全面支援 XML 預設 network（`network_ssid` / `network_sae_password`），並在 SAE 認證下強制注入 `ieee80211w=2` (PMF)。

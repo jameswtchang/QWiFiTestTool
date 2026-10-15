@@ -12,6 +12,9 @@ $ErrorActionPreference = "Continue"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $TARGET_BIN = "/data/local/tmp/QWifiTestTool"
+$TEST_IFACE = "wlan0"
+# Board-side cleanup helper: kills only daemons bound to $TEST_IFACE (keeps e.g. eth0 DHCP alive)
+$CLEANUP_SH = "/data/local/tmp/qwt_board_cleanup.sh"
 $GlobalResults = [System.Collections.Generic.List[PSObject]]::new()
 
 function Exec-Adb {
@@ -21,8 +24,27 @@ function Exec-Adb {
     return ($out -join "`n").Trim()
 }
 
+function Push-CleanupHelper {
+    # Normalize to LF (a CRLF checkout would break sh on the board), then push
+    $src = Join-Path $PSScriptRoot "qwt_board_cleanup.sh"
+    if (-not (Test-Path $src)) { return $false }
+    $tmp = Join-Path $env:TEMP "qwt_board_cleanup.sh"
+    [System.IO.File]::WriteAllText($tmp, ((Get-Content -Raw $src) -replace "`r`n", "`n"))
+    adb push $tmp $CLEANUP_SH 2>&1 | Out-Null
+    $ok = ($LASTEXITCODE -eq 0)
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    return $ok
+}
+
+function Get-IfaceHostapdPids {
+    # PIDs of hostapd processes that may control $TEST_IFACE (same rules as the cleanup helper)
+    $out = Exec-Adb "sh $CLEANUP_SH --dry-run $TEST_IFACE hostapd hostapd_s1g 2>/dev/null"
+    $pids = @($out -split "`n" | ForEach-Object { ($_.Trim() -split '\s+')[0] } | Where-Object { $_ -match '^\d+$' })
+    return ($pids -join " ")
+}
+
 function Cleanup-Environment {
-    Exec-Adb "killall -9 QWifiTestTool hostapd wpa_supplicant hostapd_s1g wpa_supplicant_s1g udhcpc dhclient dnsmasq 2>/dev/null" | Out-Null
+    Exec-Adb "sh $CLEANUP_SH $TEST_IFACE 2>/dev/null" | Out-Null
     Exec-Adb "rm -f /etc/hostapd.conf /etc/dnsmasq.conf /var/run/hostapd/* /var/run/wpa_supplicant/* 2>/dev/null" | Out-Null
     Exec-Adb "ip addr flush dev wlan0 2>/dev/null" | Out-Null
     Exec-Adb "ip link set wlan0 down 2>/dev/null; sleep 0.3; ip link set wlan0 up 2>/dev/null" | Out-Null
@@ -146,7 +168,7 @@ function Test-StaPolicyConfig {
     Write-Host -NoNewline "  [$TcId] $Name ... "
 
     # Ensure wpa_supplicant is not running so restartNetworkIfNeeded won't ask interactive question
-    Exec-Adb "killall -9 wpa_supplicant 2>/dev/null" | Out-Null
+    Exec-Adb "sh $CLEANUP_SH $TEST_IFACE wpa_supplicant 2>/dev/null" | Out-Null
     Exec-Adb "rm -f /etc/wpa_supplicant.conf 2>/dev/null" | Out-Null
 
     # Inputs: Language(N) -> Module(11) -> Menu(2: STA Edit) -> Edit(1) -> [Specific Inputs] -> Finish(0) -> Save(y) -> Exit Main(0)
@@ -172,7 +194,7 @@ function Test-StaPolicyConfig {
     $rfScanSummary = ""
     if ($mismatches.Count -eq 0 -and $ExpectedBand -and (-not $MatrixOnly)) {
         # 1. Ensure clean managed mode on wlan0
-        Exec-Adb "killall -9 wpa_supplicant hostapd 2>/dev/null" | Out-Null
+        Exec-Adb "sh $CLEANUP_SH $TEST_IFACE wpa_supplicant hostapd 2>/dev/null" | Out-Null
         Exec-Adb "ip link set wlan0 down 2>/dev/null; iw dev wlan0 set type managed 2>/dev/null; ip link set wlan0 up 2>/dev/null" | Out-Null
         Start-Sleep -Milliseconds 400
 
@@ -392,8 +414,8 @@ function Run-ApRfTestCase {
 
     $rfPass = $isAp -and $rfWidthOk
 
-    # Assertion 3: Daemon running
-    $hostapdPid = Exec-Adb "pidof hostapd"
+    # Assertion 3: Daemon running (hostapd for $TEST_IFACE; hostapd on other interfaces is ignored)
+    $hostapdPid = Get-IfaceHostapdPids
     $daemonPass = ($hostapdPid -ne "")
 
     Write-Host "  [RF INFO] Hardware RF: AP=$isAp, WidthMatch=$rfWidthOk, hostapd PID=$hostapdPid" -ForegroundColor Green
@@ -402,8 +424,8 @@ function Run-ApRfTestCase {
     Exec-Adb "killall -2 QWifiTestTool" | Out-Null
     Start-Sleep -Seconds 2
 
-    # Assertion 4: Clean teardown
-    $hostapdAfter = Exec-Adb "pidof hostapd"
+    # Assertion 4: Clean teardown (no hostapd left for $TEST_IFACE, including ones with unknown binding)
+    $hostapdAfter = Get-IfaceHostapdPids
     $teardownPass = ($hostapdAfter -eq "")
 
     try { $proc.Kill() } catch {}
@@ -469,6 +491,11 @@ if ([string]::IsNullOrWhiteSpace($devCheck)) {
 }
 
 Write-Host "ADB Connected: $devCheck" -ForegroundColor Green
+
+if (-not (Push-CleanupHelper)) {
+    Write-Host "Error: Failed to push qwt_board_cleanup.sh to board ($CLEANUP_SH)!" -ForegroundColor Red
+    exit 1
+}
 Cleanup-Environment
 
 $runMatrix = (-not $RfOnly) -and (-not $RfAll)

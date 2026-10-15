@@ -41,7 +41,7 @@ func (c *Connector) checkConnectionStatusDirect() (bool, string) {
 	iface := c.module.Kernel.GetInterface()
 
 	// 1. Try modern 'iw dev <iface> link'
-	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
+	if linkOut, err := exec.Command(iwPath(), "dev", iface, "link").Output(); err == nil {
 		outStr := string(linkOut)
 		if strings.Contains(outStr, "Connected to ") {
 			for _, line := range strings.Split(outStr, "\n") {
@@ -101,7 +101,7 @@ func (c *Connector) showConnectionInfoDirect() {
 
 	// Wireless info via iw dev link or iwconfig
 	var ssid, bssid, freqStr, signalStr, txBitrate, rxBitrate string
-	if linkOut, err := exec.Command("iw", "dev", iface, "link").Output(); err == nil {
+	if linkOut, err := exec.Command(iwPath(), "dev", iface, "link").Output(); err == nil {
 		for _, line := range strings.Split(string(linkOut), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "SSID: ") {
@@ -145,7 +145,7 @@ func (c *Connector) showConnectionInfoDirect() {
 
 	// Channel info via iw dev info
 	var iwChannel string
-	if iwOut, err := exec.Command("iw", "dev", iface, "info").Output(); err == nil {
+	if iwOut, err := exec.Command(iwPath(), "dev", iface, "info").Output(); err == nil {
 		for _, line := range strings.Split(string(iwOut), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "channel ") {

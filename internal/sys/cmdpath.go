@@ -18,6 +18,8 @@ var standardSystemDirs = []string{
 	"/system/bin",
 	"/system/xbin",
 	"/vendor/bin",
+	"/vendor/bin/hw", // Android vendor daemons (wpa_supplicant, hostapd)
+	"/data/local/tmp/wifi_tools", // binaries extracted by BinaryManager on Android
 	"/data/local/tmp",
 }
 

@@ -323,6 +323,7 @@ var enMessages = map[string]string{
 	"drv.preload_unloaded":    "[SUCCESS] Prerequisite driver unloaded: %s",
 	"drv.exec_cmd":            "[DEBUG] Running command: %s",
 	"drv.already_loaded":             "[INFO] Driver already loaded: %s",
+	"drv.not_loaded":                 "[INFO] Driver not loaded, skipping unload: %s",
 	"drv.already_loaded_params_warn": "[WARN] Module %s already loaded in kernel. Specified arguments (%s) may not be applied. Please unload and reload if needed.",
 	"drv.insmod_fail":         "insmod failed: %s - %w",
 	"drv.loaded":              "[SUCCESS] Driver loaded: %s",

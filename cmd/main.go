@@ -17,7 +17,7 @@ import (
 )
 
 // Version defines the application version string
-const Version = "V1.15"
+const Version = "V1.16"
 
 func main() {
 	// Show banner
@@ -72,6 +72,11 @@ func main() {
 
 	platformInfo.Print()
 
+	// Android framework WiFi takeover: disabled lazily right before a daemon starts,
+	// restored on exit unless a Station connection is intentionally kept alive.
+	svc := sys.NewServiceManager(platformInfo.IsAndroid)
+	keepStation := false
+
 	// Step 4: Main loop
 	for {
 		// Show options menu
@@ -86,14 +91,16 @@ func main() {
 			runConfigEditor(module, platformInfo)
 			continue
 		case "3":
-			runStationMode(module, binMgr, platformInfo)
+			keepStation = runStationMode(module, binMgr, platformInfo, svc)
 		case "4":
 			runAPConfigEditor(module)
 			continue
 		case "5":
-			runAPMode(module, binMgr)
+			runAPMode(module, binMgr, svc)
+			keepStation = false // AP mode kills wpa_supplicant on start
 			continue
 		case "0":
+			restoreAndroidWiFi(svc, keepStation)
 			fmt.Println(i18n.T("prompt.goodbye"))
 			return
 		default:
@@ -101,6 +108,7 @@ func main() {
 		}
 
 		if !ui.PromptContinue() {
+			restoreAndroidWiFi(svc, keepStation)
 			fmt.Println(i18n.T("prompt.goodbye"))
 			break
 		}
@@ -181,8 +189,23 @@ func runDiagnosis(module *models.WiFiModule) bool {
 	return false
 }
 
-// runStationMode runs Station mode workflow
-func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platformInfo *sys.PlatformInfo) {
+// restoreAndroidWiFi re-enables the Android WiFi framework on exit.
+// Skipped while a Station connection is kept, since the framework would kill our wpa_supplicant.
+func restoreAndroidWiFi(svc *sys.ServiceManager, keepStation bool) {
+	if !svc.IsDisabled() {
+		return
+	}
+	if keepStation {
+		fmt.Println("[INFO] Station 連線保持中，Android WiFi framework 維持停用 (完成測試後可執行: cmd wifi set-wifi-enabled enabled)")
+		return
+	}
+	if err := svc.EnableAndroidWiFi(); err != nil {
+		fmt.Printf("[WARN] %v\n", err)
+	}
+}
+
+// runStationMode runs Station mode workflow, returns true if wpa_supplicant is left running
+func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platformInfo *sys.PlatformInfo, svc *sys.ServiceManager) bool {
 	supplicantPath := binMgr.GetWpaSupplicantPathFor(module)
 
 	connector := wifi.NewConnector(
@@ -190,6 +213,7 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 		supplicantPath,
 		platformInfo.WpaCliPath,
 		platformInfo.WpaSupplicantSocket, // already overridden from StationConfig
+		svc,
 	)
 
 	// Intercept Ctrl+C / SIGTERM during Station mode to guarantee daemon and interface cleanup
@@ -205,6 +229,7 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 		case <-sigChan:
 			fmt.Println("\n" + ui.Yellow + "[INFO] 接收到中斷信號 (Ctrl+C)，正在清理 Station 模式資源與行程..." + ui.Reset)
 			connector.Stop()
+			restoreAndroidWiFi(svc, false)
 			os.Exit(130)
 		case <-doneChan:
 			return
@@ -214,13 +239,13 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 	keepRunning, err := connector.Start()
 	if err != nil {
 		ui.ShowError(err)
-		return
+		return false
 	}
 
 	// If user chose to keep existing connection, don't stop the daemon
 	if keepRunning {
 		fmt.Println(i18n.T("info.wpa_running"))
-		return
+		return true
 	}
 
 	// For new connections, ask if user wants to disconnect
@@ -231,9 +256,10 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 	if response == "y" || response == "Y" {
 		fmt.Println(i18n.T("info.disconnecting"))
 		connector.Stop()
-	} else {
-		fmt.Println(i18n.T("info.keep_connection"))
+		return false
 	}
+	fmt.Println(i18n.T("info.keep_connection"))
+	return true
 }
 
 // runConfigEditor runs the wpa_supplicant.conf editor
@@ -258,12 +284,13 @@ func runAPConfigEditor(module *models.WiFiModule) {
 }
 
 // runAPMode runs AP mode workflow
-func runAPMode(module *models.WiFiModule, binMgr *sys.BinaryManager) {
+func runAPMode(module *models.WiFiModule, binMgr *sys.BinaryManager, svc *sys.ServiceManager) {
 	hostapdPath := binMgr.GetHostapdPathFor(module)
 
 	hotspot := wifi.NewHotspot(
 		module,
 		hostapdPath,
+		svc,
 	)
 
 	if err := hotspot.Start(); err != nil {
