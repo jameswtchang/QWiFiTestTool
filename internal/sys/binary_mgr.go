@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"qwifitesttool/internal/models"
+	"qwifitesttool/internal/platform"
 )
 
 // Embedded binary assets for Android ARM64
@@ -43,14 +44,14 @@ type BinaryManager struct {
 
 // NewBinaryManager creates a new binary manager instance
 func NewBinaryManager() *BinaryManager {
-	platform := runtime.GOOS
-	if isAndroid() {
-		platform = "android"
+	plat := runtime.GOOS
+	if platform.IsAndroid() {
+		plat = "android"
 	}
 
 	return &BinaryManager{
-		platform:      platform,
-		extractPath:   getExtractPath(platform),
+		platform:      plat,
+		extractPath:   getExtractPath(plat),
 		binariesReady: false,
 		extracted:     make(map[string]bool),
 	}
@@ -200,10 +201,4 @@ func getExtractPath(platform string) string {
 		return androidExtractPath
 	}
 	return "" // Not used on Linux
-}
-
-// isAndroid detects if running on Android
-func isAndroid() bool {
-	_, err := os.Stat("/system/build.prop")
-	return err == nil
 }

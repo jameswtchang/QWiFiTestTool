@@ -397,6 +397,7 @@ var enMessages = map[string]string{
 	"conn.stopping_wpa":       "[INFO] Stopping existing wpa_supplicant...",
 	"conn.update_config":      "[INFO] Updating config: %s",
 	"conn.update_config_fail": "Config update failed: %w",
+	"conn.eap_unsupported": "Network %s uses 802.1X (EAP) enterprise authentication; only Open / WPA-Personal / WPA3-SAE are supported. Please select another network",
 	"conn.restart_wpa":        "[INFO] Restarting wpa_supplicant with new config...",
 	"conn.net_config_done":    "[DEBUG] ========== Configuration Done ==========",
 	"conn.wait_connect":       "[INFO] Waiting for connection...",
@@ -523,4 +524,30 @@ var enMessages = map[string]string{
 	// ===== Module Loader (loader.go) =====
 	"loader.external": "[INFO] Using external config: %s",
 	"loader.embedded": "[INFO] External config not found, using embedded defaults",
+	"loader.custom": "[INFO] Custom external config detected (differs from the embedded version)",
+
+	// ===== Platform Info (sys/platform.go) =====
+	"platform.title": "Platform Info",
+	"platform.name": "Platform: ",
+	"platform.socket": "wpa_supplicant Socket: ",
+	"platform.wpa_path": "wpa_supplicant path: ",
+	"platform.cli_path": "wpa_cli path: ",
+
+	// ===== Hotspot: config guide, DFS, Morse HaLow (hotspot.go) =====
+	"hotspot.no_config_guide": "[INFO] No system AP config found. Launching the AP config editor...",
+	"hotspot.editor_init_fail": "Failed to initialize AP config editor: %w",
+	"hotspot.editor_fail": "AP config editing failed: %w",
+	"hotspot.no_valid_config": "No valid config was generated; cannot start AP",
+	"hotspot.dfs_cac_wait": "[INFO] DFS channel detected (ieee80211h=1), waiting for CAC channel availability check (~60s)...",
+	"hotspot.morse_reload": "[INFO] Morse HaLow AP requires scheme=%s (%s), current scheme=%s (morse: %v, dot11ah: %v), reloading driver...",
+	"hotspot.morse_unload_fail": "Failed to remove Morse driver; cannot apply Channelization Scheme: %w",
+	"hotspot.morse_dot11ah_busy": "Cannot unload dot11ah module; it may still be in use by a process",
+	"hotspot.morse_reload_fail": "Automatic Morse driver reload failed: %w",
+	"hotspot.morse_scheme_mismatch": "Channelization Scheme mismatch after reload (expected %s, got %s)",
+	"hotspot.morse_iface_missing": "Network interface %s did not appear after loading the Morse driver",
+	"hotspot.morse_ready": "[INFO] Morse driver ready with the correct Channelization Scheme",
+
+	// ===== Main: Station mode (main.go) =====
+	"info.station_sigint": "[INFO] Interrupt received (Ctrl+C), cleaning up Station mode resources and processes...",
+	"info.android_wifi_kept_off": "[INFO] Station connection kept; Android WiFi framework stays disabled (run 'cmd wifi set-wifi-enabled enabled' when done)",
 }

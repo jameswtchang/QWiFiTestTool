@@ -316,6 +316,33 @@
 * E2E：Phase 1 AP 矩陣 29/29、Phase 2 STA 策略 11/11 (含實體 RF 掃描)、Phase 3 核心 RF 6/6 PASS。
 * 4 個綁定 eth9 的對照 daemon (udhcpc / dnsmasq / wpa_supplicant / hostapd，comm 與真實名稱相同) 於完整 E2E 全程存活。
 
+## 13. 最新更新 (2026-10-16) — V1.17 (企業版 AP 明確標示、英文介面 i18n 補齊、冗餘程式清理與 /sync 流程強化)
+
+### 13.1 企業版 802.1X (EAP) AP 處理 (`internal/wifi/wpa_string.go`, `scanner.go`, `connector.go`)
+* **問題**：`deriveKeyMgmt` 將 `[WPA2-EAP-CCMP]` 判為 `WPA-PSK`、掃描清單標為「WPA/WPA2-Personal」，連線必定失敗且錯誤訊息引導使用者檢查密碼；密碼留空時更會寫成 `key_mgmt=NONE` (開放網路)。
+* **修正**：新增 `isEnterpriseOnly`（含 `EAP` 且無 `PSK` / `SAE` 替代）；掃描清單標為 `WPA2-Enterprise (802.1X)`，選取後於輸入密碼前停止並提示 (`conn.eap_unsupported`)；`buildNetworkBlock` 於函式開頭即校驗，任何密碼都不會寫出錯誤設定。EAP+PSK 混合 AP 仍以 PSK 連線。
+* 完整 EAP (PEAP / TTLS 帳密) 支援不在本版範圍。
+
+### 13.2 英文介面 i18n 補齊
+* `hotspot.go` (12)、`sys/platform.go` (5)、`main.go` (2)、`models/loader.go` (1) 共 19 行寫死中文改走 i18n，新增 20 個 key (zh / en)。
+* 國家頻道 JSON 的欄位名 (`所有类型AP`、`信道` 等) 為資料鍵，維持原樣。
+
+### 13.3 冗餘程式清理
+* 移除無呼叫者的 `GenerateHostapdConfig` (已標 Deprecated，91 行)。
+* 三份 `isAndroid()` (`models` / `sys` / `config`) 收斂為新套件 `internal/platform` 的 `IsAndroid()`；因 `sys` 依賴 `models`，共用函式需獨立為無依賴套件。
+
+### 13.4 調查結論 (未修改)
+* **外部 XML 權限與 `PostLoadCmd`**：外部 XML 設計上即供現場工程師自由修改，維持現狀。
+* **PCIe 模組等待網卡名稱**：板上 Qualcomm 網卡 `device/driver` 指向 `cnss_pci` (非 `wlan`)，`GetInterface()` 依驅動偵測對 CNSS 模組恆退回 XML 名稱，等待邏輯改用它不會改變行為；待遇到介面名稱不一致的板子再新增 `<NetDriver>` 欄位。
+
+### 13.5 工作流
+* `/sync` 新增版本號檢查與自動遞增、MD 文檔對照表與一致性檢查、程式修改時必須通過實機 E2E 才可提交 (`--quick` / `--skip-hw` 參數)；`AGENTS.md` 增列 `/sync` 驗證步驟可部署的例外。
+
+### 13.6 驗證成果 (Qualcomm FME170Q-865，Linux 5.10.160)
+* 本機 `go vet ./...`、`go test ./...` 全數通過 (含新增 `TestEnterpriseDetection`、`TestParseScanResults_SpaceFallback`、`internal/platform` 測試)。
+* 實機 E2E (`scripts/e2e_wifi_test.ps1` 完整模式) **46/46 PASS**：Phase 1 AP 矩陣 29/29、Phase 2 STA 策略 11/11、Phase 3 RF 實體廣播 6/6。
+* 未涵蓋：企業版 AP 實連 (現場無 802.1X AP)、英文介面字串顯示 (E2E 不比對文字)、Morse 模組訊息、Android 平台；6GHz STA 鎖頻掃描 0 BSS (附近無 6G AP，邊界無法判定)。
+
 
 
 

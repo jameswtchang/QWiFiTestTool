@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"qwifitesttool/assets"
 	"qwifitesttool/internal/i18n"
+	"qwifitesttool/internal/platform"
 )
 
 // LoadModules loads WiFi module configurations using a hybrid strategy:
@@ -24,7 +24,7 @@ func LoadModules() (*WiFiToolConfig, error) {
 	if data, err := os.ReadFile(externalPath); err == nil {
 		fmt.Println(i18n.Tf("loader.external", externalPath))
 		if !bytes.Equal(data, assets.DefaultModulesXML) {
-			fmt.Println("[INFO] 偵測到自訂外部配置 (與程式內嵌版本不同)")
+			fmt.Println(i18n.T("loader.custom"))
 		}
 		return parseXML(data)
 	}
@@ -36,7 +36,7 @@ func LoadModules() (*WiFiToolConfig, error) {
 
 // getExternalConfigPath returns the platform-specific external config path
 func getExternalConfigPath() string {
-	if runtime.GOOS == "android" || isAndroid() {
+	if platform.IsAndroid() {
 		return "/data/local/tmp/default_modules.xml"
 	}
 	exePath, err := os.Executable()
@@ -47,12 +47,6 @@ func getExternalConfigPath() string {
 		}
 	}
 	return "./default_modules.xml"
-}
-
-// isAndroid attempts to detect if running on Android by checking for Android-specific paths
-func isAndroid() bool {
-	_, err := os.Stat("/system/build.prop")
-	return err == nil
 }
 
 // parseXML parses XML data into WiFiToolConfig struct

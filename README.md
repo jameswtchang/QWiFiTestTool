@@ -27,6 +27,8 @@
 ✅ **中文 / 特殊字元 SSID 連線 (V1.16)**: 解碼 `wpa_cli` 的 `\xNN` 跳脫，非 ASCII SSID 以 hex 寫入 `wpa_supplicant.conf`；WPA-PSK 密碼長度與 64 位 hex PSK 格式預先校驗  
 ✅ **AP 子網路遮罩完整支援 (V1.16)**: XML `<Netmask>` 任意合法遮罩 (如 /25、/22) 正確換算，非法遮罩直接報錯  
 ✅ **Android 平台修正 (V1.16，尚未實機驗證)**: 內嵌佔位執行檔 ELF 校驗與系統 fallback、無 `iw` 時以 hostapd 狀態判定 AP 就緒、啟動 daemon 前接管 / 結束時還原 Android WiFi framework  
+✅ **企業版 802.1X AP 明確標示 (V1.17)**: 掃描清單將純 EAP 網路標為 `WPA2-Enterprise (802.1X)`（原誤標為 Personal），選取時於輸入密碼前即提示不支援；同時支援 EAP 與 PSK 的 AP 仍可用密碼連線  
+✅ **英文介面完整翻譯 (V1.17)**: 平台資訊、AP 配置引導、DFS 等待、Morse HaLow 驅動重載等訊息全數納入 i18n，英文模式不再混出中文  
 
 ## 目錄結構
 
@@ -40,6 +42,7 @@ QWifiTestTool/
 │   └── android_arm64/       # Android 靜態二進制檔案
 ├── internal/
 │   ├── models/              # 資料模型 (XML 解析、頻道查詢、JSON 嵌入)
+│   ├── platform/            # 平台判斷 (IsAndroid，供各套件共用、無其他依賴)
 │   ├── sys/                 # 系統抽象層
 │   ├── config/              # 配置生成器與 TUI 編輯器 (ap_config_editor.go / wpa_editor.go)
 │   ├── wifi/                # WiFi 操作邏輯 (Hotspot/Connection)
@@ -155,6 +158,6 @@ su
 
 ---
 
-**版本**: V1.16  
-**維護**: WiFi 驅動團隊 (Updated: 2026-10-15)
+**版本**: V1.17  
+**維護**: WiFi 驅動團隊 (Updated: 2026-10-16)
 

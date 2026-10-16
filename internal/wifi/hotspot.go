@@ -1,7 +1,7 @@
 package wifi
 
 import (
-
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -78,20 +78,20 @@ func (h *Hotspot) setupHostapdConfig() error {
 	if exists {
 		h.printConfigContent("hostapd", configPath)
 	} else {
-		fmt.Println("[INFO] 找不到系統 AP 配置檔。將引導您進入 AP 配置編輯器...")
+		fmt.Println(i18n.T("hotspot.no_config_guide"))
 		
 		editor, err := config.NewAPConfigEditor(h.module)
 		if err != nil {
-			return fmt.Errorf("初始化 AP 配置編輯器失敗: %w", err)
+			return fmt.Errorf(i18n.T("hotspot.editor_init_fail"), err)
 		}
 		if err := editor.Start(); err != nil {
-			return fmt.Errorf("AP 配置編輯失敗: %w", err)
+			return fmt.Errorf(i18n.T("hotspot.editor_fail"), err)
 		}
 		
 		// 編輯器完成後，重新取得實際生成的配置路徑
 		configPath, exists, err = confMgr.GetConfigPath()
 		if err != nil || !exists {
-			return fmt.Errorf("未產生有效配置檔，無法啟動 AP")
+			return errors.New(i18n.T("hotspot.no_valid_config"))
 		}
 		h.hostapdConfig = configPath
 		
@@ -233,7 +233,7 @@ func (h *Hotspot) startServices() error {
 	if data, err := os.ReadFile(h.hostapdConfig); err == nil && strings.Contains(string(data), "ieee80211h=1") {
 		isDFS = true
 		maxWait = 75 // CAC 60s + buffer for DFS channels
-		fmt.Println(ui.Yellow + "[INFO] 偵測到 DFS 頻道 (ieee80211h=1)，正在等待 CAC 頻道可用性檢查 (~60秒)..." + ui.Reset)
+		fmt.Println(ui.Yellow + i18n.T("hotspot.dfs_cac_wait") + ui.Reset)
 	}
 	for i := 0; i < maxWait; i++ {
 		select {
@@ -463,8 +463,7 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 		return nil
 	}
 
-	fmt.Printf("[INFO] Morse HaLow AP 需要 scheme=%s (%s), 目前為 scheme=%s (morse: %v, dot11ah: %v), 正在重新載入驅動...\n",
-		targetScheme, country, curScheme, morseLoaded, dot11Loaded)
+	fmt.Println(i18n.Tf("hotspot.morse_reload", targetScheme, country, curScheme, morseLoaded, dot11Loaded))
 
 	rmmodPath := sys.FindCommand("rmmod", "rmmod")
 
@@ -475,7 +474,7 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 		time.Sleep(200 * time.Millisecond)
 
 		if err := UnloadDriver(h.module); err != nil {
-			return fmt.Errorf("移除 Morse 驅動失敗，無法套用 Channelization Scheme: %w", err)
+			return fmt.Errorf(i18n.T("hotspot.morse_unload_fail"), err)
 		}
 	}
 
@@ -485,7 +484,7 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if _, err := os.Stat("/sys/module/dot11ah"); err == nil {
-		return fmt.Errorf("無法卸載 dot11ah 模組，可能仍有進程占用")
+		return errors.New(i18n.T("hotspot.morse_dot11ah_busy"))
 	}
 
 	// 保留除 country 之外的原有 insmod 參數（如 bcf=...）
@@ -508,12 +507,12 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 	h.module.Kernel.InsmodArgs = strings.TrimSpace(fmt.Sprintf("country=%s %s", country, strings.Join(otherArgs, " ")))
 
 	if err := LoadDriver(h.module); err != nil {
-		return fmt.Errorf("自動重新載入 Morse 驅動失敗: %w", err)
+		return fmt.Errorf(i18n.T("hotspot.morse_reload_fail"), err)
 	}
 
 	// 驗證 channelization_scheme（若 sysfs 參數可讀）
 	if afterScheme := readScheme(); afterScheme != "" && afterScheme != targetScheme {
-		return fmt.Errorf("重新載入後 Channelization Scheme 不符 (預期 %s, 實際 %s)", targetScheme, afterScheme)
+		return errors.New(i18n.Tf("hotspot.morse_scheme_mismatch", targetScheme, afterScheme))
 	}
 
 	// 等待網路介面出現（最多 8 秒）
@@ -527,10 +526,10 @@ func (h *Hotspot) ensureMorseChannelizationScheme() error {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if !ifaceReady {
-		return fmt.Errorf("Morse 驅動載入後網路介面 %s 未出現", iface)
+		return errors.New(i18n.Tf("hotspot.morse_iface_missing", iface))
 	}
 
-	fmt.Println("[INFO] Morse 驅動已就緒並套用正確 Channelization Scheme")
+	fmt.Println(i18n.T("hotspot.morse_ready"))
 	return nil
 }
 

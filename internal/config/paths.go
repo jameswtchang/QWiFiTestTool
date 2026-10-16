@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
+
+	"qwifitesttool/internal/platform"
 )
 
 // GetConfigBasePath returns the base directory for config files
 func GetConfigBasePath() string {
-	if isAndroid() {
+	if platform.IsAndroid() {
 		return "/data/local/tmp/wifi_tools"
 	}
 	return "." // Current directory on Linux
@@ -42,13 +43,4 @@ func SaveConfig(path, content string) error {
 
 	fmt.Printf("[INFO] Configuration saved to: %s\n", path)
 	return nil
-}
-
-// isAndroid detects if running on Android
-func isAndroid() bool {
-	if runtime.GOOS == "android" {
-		return true
-	}
-	_, err := os.Stat("/system/build.prop")
-	return err == nil
 }

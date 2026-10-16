@@ -142,6 +142,11 @@ func deriveKeyMgmt(flags string) string {
 // flags is the raw flags string from wpa_cli scan_results
 // ssid must be the raw (decoded) SSID bytes, not wpa_cli's \xNN-escaped form.
 func buildNetworkBlock(ssid, password, flags string, policies map[string]string) (string, error) {
+	// Validate first so an empty password never turns an unsupported (EAP) network into key_mgmt=NONE
+	if err := validateCredential(password, flags); err != nil {
+		return "", err
+	}
+
 	var block strings.Builder
 
 	block.WriteString("network={\n")
@@ -152,9 +157,6 @@ func buildNetworkBlock(ssid, password, flags string, policies map[string]string)
 	if password == "" {
 		block.WriteString(" key_mgmt=NONE\n")
 	} else {
-		if err := validateCredential(password, flags); err != nil {
-			return "", err
-		}
 		if keyMgmt != "" {
 			block.WriteString(fmt.Sprintf(" key_mgmt=%s\n", keyMgmt))
 		}

@@ -210,6 +210,11 @@ func parseBand(freqStr string) string {
 
 // parseSecurity determines security type from flags
 func parseSecurity(flags string) string {
+	// Must precede the WPA2 checks, otherwise "[WPA2-EAP-CCMP]" is labelled Personal
+	if isEnterpriseOnly(flags) {
+		return "WPA2-Enterprise (802.1X)"
+	}
+
 	flags = strings.ToUpper(flags)
 
 	if strings.Contains(flags, "SAE") || strings.Contains(flags, "WPA3") {

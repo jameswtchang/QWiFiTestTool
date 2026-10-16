@@ -146,6 +146,46 @@ func TestParseScanResults_SpaceFallback(t *testing.T) {
 	}
 }
 
+func TestEnterpriseDetection(t *testing.T) {
+	tests := []struct {
+		flags      string
+		enterprise bool
+		label      string
+	}{
+		{"[WPA2-EAP-CCMP][ESS]", true, "WPA2-Enterprise (802.1X)"},
+		{"[WPA2-EAP-SHA256-CCMP][ESS]", true, "WPA2-Enterprise (802.1X)"},
+		{"[WPA-EAP-TKIP][WPA2-EAP-CCMP][ESS]", true, "WPA2-Enterprise (802.1X)"},
+		{"[WPA2-EAP+PSK-CCMP][ESS]", false, "WPA/WPA2-Personal"}, // PSK alternative: keep connectable
+		{"[WPA2-PSK-CCMP][ESS]", false, "WPA2-Personal"},
+		{"[RSN-SAE-CCMP][ESS]", false, "WPA3-SAE"},
+		{"[ESS]", false, ""}, // open network label is i18n; only detection checked
+	}
+	for _, tt := range tests {
+		if got := isEnterpriseOnly(tt.flags); got != tt.enterprise {
+			t.Errorf("isEnterpriseOnly(%q) = %v, want %v", tt.flags, got, tt.enterprise)
+		}
+		if tt.label != "" {
+			if got := parseSecurity(tt.flags); got != tt.label {
+				t.Errorf("parseSecurity(%q) = %q, want %q", tt.flags, got, tt.label)
+			}
+		}
+	}
+
+	// Enterprise networks are rejected with or without a password, never written as psk=/NONE
+	for _, pw := range []string{"", "short", "longenough123"} {
+		if err := validateCredential(pw, "[WPA2-EAP-CCMP][ESS]"); err == nil {
+			t.Errorf("validateCredential(%q, EAP) should fail", pw)
+		}
+		if _, err := buildNetworkBlock("CorpNet", pw, "[WPA2-EAP-CCMP][ESS]", nil); err == nil {
+			t.Errorf("buildNetworkBlock(EAP, %q) should fail", pw)
+		}
+	}
+	// Mixed EAP+PSK still builds a PSK block
+	if blk, err := buildNetworkBlock("Mixed", "12345678", "[WPA2-EAP+PSK-CCMP][ESS]", nil); err != nil || !strings.Contains(blk, "key_mgmt=WPA-PSK") {
+		t.Errorf("mixed EAP+PSK should build WPA-PSK block, err=%v\n%s", err, blk)
+	}
+}
+
 func TestNetmaskToPrefix(t *testing.T) {
 	tests := []struct {
 		in      string

@@ -277,7 +277,7 @@ graph TD
 ## 6. hostapd 產生器統一與 hotspot.go 整合
 
 - **統一單一真實來源**：`ap_config_editor.go` 的 `generateHostapd()` 為專案唯一權威產生器。
-- **廢除舊版簡易生成**：`generator.go` 中的 `GenerateHostapdConfig()` 標記為 `// Deprecated`。
+- **廢除舊版簡易生成**：`generator.go` 中的 `GenerateHostapdConfig()` 標記為 `// Deprecated`（無呼叫者，已於 V1.17 移除）。
 - **hotspot.go 脫鉤修復**：`hotspot.go` 中當配置檔不存在時，引導用戶透過 AP 配置編輯器生成合規設定，不再直呼舊版 generator。
 
 ---

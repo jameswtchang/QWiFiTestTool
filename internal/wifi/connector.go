@@ -596,6 +596,11 @@ func (c *Connector) interactiveScanConnect() (bool, error) {
 
 	selected := networks[selectedIndex-1]
 
+	// Enterprise (802.1X) networks need EAP identity settings; stop before asking for a password
+	if isEnterpriseOnly(selected.Flags) {
+		return false, fmt.Errorf("%s", i18n.Tf("conn.eap_unsupported", selected.SSID))
+	}
+
 	// 3. Password
 	fmt.Print(i18n.T("conn.enter_password"))
 	password, _ := reader.ReadString('\n')

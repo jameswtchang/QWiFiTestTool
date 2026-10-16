@@ -91,9 +91,20 @@ func formatPSKValue(password string) (string, error) {
 	return `"` + password + `"`, nil
 }
 
+// isEnterpriseOnly reports whether scan flags advertise 802.1X (EAP) authentication without
+// a PSK/SAE alternative (e.g. "[WPA2-EAP-CCMP][ESS]"). Such networks need identity/EAP
+// settings this tool does not configure, so connecting with psk= can never succeed.
+func isEnterpriseOnly(flags string) bool {
+	u := strings.ToUpper(flags)
+	return strings.Contains(u, "EAP") && !strings.Contains(u, "PSK") && !strings.Contains(u, "SAE")
+}
+
 // validateCredential checks the password against the key management derived from scan flags,
 // so the caller can reject it before tearing down the running daemon.
 func validateCredential(password, flags string) error {
+	if isEnterpriseOnly(flags) {
+		return fmt.Errorf("802.1X (EAP) enterprise authentication is not supported")
+	}
 	if password == "" {
 		return nil // Open network
 	}

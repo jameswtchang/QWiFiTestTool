@@ -397,6 +397,7 @@ var zhMessages = map[string]string{
 	"conn.stopping_wpa":       "[INFO] 停止現有 wpa_supplicant...",
 	"conn.update_config":      "[INFO] 更新配置文件: %s",
 	"conn.update_config_fail": "更新配置失敗: %w",
+	"conn.eap_unsupported": "網路 %s 使用企業版 802.1X (EAP) 認證，目前僅支援開放網路 / WPA-Personal / WPA3-SAE，請改選其他網路",
 	"conn.restart_wpa":        "[INFO] 使用新配置重啟 wpa_supplicant...",
 	"conn.net_config_done":    "[DEBUG] ========== 配置完成 ==========",
 	"conn.wait_connect":       "[INFO] 等待連接...",
@@ -526,4 +527,30 @@ var zhMessages = map[string]string{
 	// ===== Module Loader (loader.go) =====
 	"loader.external": "[INFO] 使用外部配置檔案: %s",
 	"loader.embedded": "[INFO] 未找到外部配置檔案，使用內嵌預設配置",
+	"loader.custom": "[INFO] 偵測到自訂外部配置 (與程式內嵌版本不同)",
+
+	// ===== Platform Info (sys/platform.go) =====
+	"platform.title": "平台資訊",
+	"platform.name": "平台: ",
+	"platform.socket": "wpa_supplicant Socket: ",
+	"platform.wpa_path": "wpa_supplicant 路徑: ",
+	"platform.cli_path": "wpa_cli 路徑: ",
+
+	// ===== Hotspot: config guide, DFS, Morse HaLow (hotspot.go) =====
+	"hotspot.no_config_guide": "[INFO] 找不到系統 AP 配置檔。將引導您進入 AP 配置編輯器...",
+	"hotspot.editor_init_fail": "初始化 AP 配置編輯器失敗: %w",
+	"hotspot.editor_fail": "AP 配置編輯失敗: %w",
+	"hotspot.no_valid_config": "未產生有效配置檔，無法啟動 AP",
+	"hotspot.dfs_cac_wait": "[INFO] 偵測到 DFS 頻道 (ieee80211h=1)，正在等待 CAC 頻道可用性檢查 (~60秒)...",
+	"hotspot.morse_reload": "[INFO] Morse HaLow AP 需要 scheme=%s (%s), 目前為 scheme=%s (morse: %v, dot11ah: %v), 正在重新載入驅動...",
+	"hotspot.morse_unload_fail": "移除 Morse 驅動失敗，無法套用 Channelization Scheme: %w",
+	"hotspot.morse_dot11ah_busy": "無法卸載 dot11ah 模組，可能仍有進程占用",
+	"hotspot.morse_reload_fail": "自動重新載入 Morse 驅動失敗: %w",
+	"hotspot.morse_scheme_mismatch": "重新載入後 Channelization Scheme 不符 (預期 %s, 實際 %s)",
+	"hotspot.morse_iface_missing": "Morse 驅動載入後網路介面 %s 未出現",
+	"hotspot.morse_ready": "[INFO] Morse 驅動已就緒並套用正確 Channelization Scheme",
+
+	// ===== Main: Station mode (main.go) =====
+	"info.station_sigint": "[INFO] 接收到中斷信號 (Ctrl+C)，正在清理 Station 模式資源與行程...",
+	"info.android_wifi_kept_off": "[INFO] Station 連線保持中，Android WiFi framework 維持停用 (完成測試後可執行: cmd wifi set-wifi-enabled enabled)",
 }

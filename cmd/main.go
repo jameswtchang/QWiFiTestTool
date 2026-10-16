@@ -17,7 +17,7 @@ import (
 )
 
 // Version defines the application version string
-const Version = "V1.16"
+const Version = "V1.17"
 
 func main() {
 	// Show banner
@@ -196,7 +196,7 @@ func restoreAndroidWiFi(svc *sys.ServiceManager, keepStation bool) {
 		return
 	}
 	if keepStation {
-		fmt.Println("[INFO] Station 連線保持中，Android WiFi framework 維持停用 (完成測試後可執行: cmd wifi set-wifi-enabled enabled)")
+		fmt.Println(i18n.T("info.android_wifi_kept_off"))
 		return
 	}
 	if err := svc.EnableAndroidWiFi(); err != nil {
@@ -227,7 +227,7 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 	go func() {
 		select {
 		case <-sigChan:
-			fmt.Println("\n" + ui.Yellow + "[INFO] 接收到中斷信號 (Ctrl+C)，正在清理 Station 模式資源與行程..." + ui.Reset)
+			fmt.Println("\n" + ui.Yellow + i18n.T("info.station_sigint") + ui.Reset)
 			connector.Stop()
 			restoreAndroidWiFi(svc, false)
 			os.Exit(130)

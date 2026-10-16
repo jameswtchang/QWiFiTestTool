@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"qwifitesttool/internal/i18n"
+	"qwifitesttool/internal/platform"
 	"qwifitesttool/internal/ui"
 )
 
@@ -23,7 +25,7 @@ func DetectPlatform() *PlatformInfo {
 	info := &PlatformInfo{}
 
 	// Detect Android
-	if _, err := os.Stat("/system/build.prop"); err == nil {
+	if platform.IsAndroid() {
 		info.IsAndroid = true
 		info.Platform = "Android"
 		info.WpaSupplicantSocket = detectAndroidWpaSocket()
@@ -97,10 +99,10 @@ func GetWpaSocketForInterface(basePath, iface string) string {
 
 // Print displays platform information
 func (pi *PlatformInfo) Print() {
-	fmt.Println("\n" + ui.Cyan + ui.Bold + "========== 平台資訊 ==========" + ui.Reset)
-	fmt.Printf(ui.Bold+"平台: "+ui.Green+"%s"+ui.Reset+"\n", pi.Platform)
-	fmt.Printf(ui.Bold+"wpa_supplicant Socket: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaSupplicantSocket)
-	fmt.Printf(ui.Bold+"wpa_supplicant 路徑: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaSupplicantPath)
-	fmt.Printf(ui.Bold+"wpa_cli 路徑: "+ui.Cyan+"%s"+ui.Reset+"\n", pi.WpaCliPath)
+	fmt.Println("\n" + ui.Cyan + ui.Bold + "========== " + i18n.T("platform.title") + " ==========" + ui.Reset)
+	fmt.Println(ui.Bold + i18n.T("platform.name") + ui.Green + pi.Platform + ui.Reset)
+	fmt.Println(ui.Bold + i18n.T("platform.socket") + ui.Cyan + pi.WpaSupplicantSocket + ui.Reset)
+	fmt.Println(ui.Bold + i18n.T("platform.wpa_path") + ui.Cyan + pi.WpaSupplicantPath + ui.Reset)
+	fmt.Println(ui.Bold + i18n.T("platform.cli_path") + ui.Cyan + pi.WpaCliPath + ui.Reset)
 	fmt.Println(ui.Cyan + ui.Bold + "==============================" + ui.Reset)
 }
