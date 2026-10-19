@@ -38,6 +38,23 @@ flowchart TD
 | `-MatrixOnly`| Switch | **僅執行靜態配置生成矩陣**（Phase 1 + Phase 2 共 40 項，不啟動射頻廣播） | 快速驗證 TUI 選單邏輯與設定檔生成 |
 | `-ApOnly` | Switch | **僅測試 AP 相關項目**（排除 Phase 2 STA 策略） | 專注於 AP 熱點功能驗證 |
 | `-StaOnly` | Switch | **僅測試 STA 相關項目**（排除 Phase 1 & Phase 3 AP 項目） | 專注於 STA 頻段鎖定與協定限制驗證 |
+| `-ModuleName` | String | 依名稱片段從工具選單查找模組編號（預設 `FME170Q`，必須恰好匹配一個） | 測試其他模組，或 XML 模組順序變動後 |
+| `-Iface` | String | 測試網卡（預設 `wlan0`），清理、掃描與 `iw` 斷言都只針對它 | 模組網卡名稱不是 `wlan0` 時 |
+| `-OutDir` | String | `results.json` 與失敗證據輸出目錄（預設 `%TEMP%\qwt_e2e_<時間>`） | CI 收集報告 |
+| `-CanaryIface` | String | 網卡隔離測試的假 daemon 所綁定的網卡（預設 `eth9`，不需實際存在） | 板上真的有 `eth9` 時改用其他名稱 |
+| `-DiagOnly` | Switch | **僅執行 Phase 4**：診斷選單、驅動卸載／載入／重新載入、重載後 AP 實測（opt-in，不含於預設） | 驗證驅動生命週期；跑完可能需要重開機 |
+
+預設完整測試共 **50** 項（AP 30 + STA 12 + RF 7 + 網卡隔離 1）；`-MatrixOnly` 43 項；`-DiagOnly` 5 項。英文介面與網卡隔離項目說明見 [`docs/e2e_wifi_test_guide.md`](../docs/e2e_wifi_test_guide.md)。
+
+板端輔助腳本（測試啟動時自動推送到 `/data/local/tmp/`，需與 `e2e_wifi_test.ps1` 放在同一目錄）：
+- `qwt_board_cleanup.sh`：只清理綁定測試網卡（或未宣告網卡）的 daemon。
+- `qwt_canary.sh`：`start|check|stop`，在另一張網卡上啟動四個假 daemon，驗證上述清理不會誤殺。
+
+**Exit code**：`0` = 無 FAIL（允許 INCONCLUSIVE）；`1` = 有 FAIL 或環境準備失敗（ADB 未連線、清理腳本推送失敗、找不到模組、設定檔備份失敗）。
+
+**板端設定檔保護**：`/etc/wpa_supplicant.conf`、`/etc/hostapd.conf`、`/etc/dnsmasq.conf` 開跑前備份到 `/data/local/tmp/qwt_e2e_backup`，結束時（含 Ctrl+C）還原，原本不存在的檔案會刪除。上次執行中斷留下的備份會被沿用（其中是原始檔），不會被覆蓋。
+
+**輸入節奏**：每筆輸入都等工具輸出靜止 300ms（停在提示上）才送出。每個 session 必須以「再見!」正常退出；畫面出現「無效」字樣代表輸入與選單脫節，直接判 FAIL。
 
 ---
 
@@ -45,37 +62,43 @@ flowchart TD
 
 ### Phase 1: AP 規格預設全矩陣（29 項）
 
-| 頻段 | TC ID | 測試案例名稱 | 協議 | 頻寬 | 核心驗證 Token |
-|:---:|:---|:---|:---:|:---:|:---|
-| **6 GHz** | TC-AP-M01 | 6GHz WiFi 7 320M | 802.11be | 320 MHz | `hw_mode=a`, `channel=37`, `ieee80211be=1`, `op_class=137` |
-| | TC-AP-M02 | 6GHz WiFi 7 160M | 802.11be | 160 MHz | `hw_mode=a`, `channel=37`, `ieee80211be=1`, `op_class=134` |
-| | TC-AP-M03 | 6GHz WiFi 7 80M | 802.11be | 80 MHz | `hw_mode=a`, `channel=37`, `ieee80211be=1`, `op_class=133` |
-| | TC-AP-M04 | 6GHz WiFi 7 40M | 802.11be | 40 MHz | `hw_mode=a`, `channel=37`, `ieee80211be=1`, `op_class=132` |
-| | TC-AP-M05 | 6GHz WiFi 7 20M | 802.11be | 20 MHz | `hw_mode=a`, `channel=37`, `ieee80211be=1`, `op_class=131` |
-| | TC-AP-M06 | 6GHz WiFi 6 160M | 802.11ax | 160 MHz | `hw_mode=a`, `channel=37`, `ieee80211ax=1`, `op_class=134` |
-| | TC-AP-M07 | 6GHz WiFi 6 80M | 802.11ax | 80 MHz | `hw_mode=a`, `channel=37`, `ieee80211ax=1`, `op_class=133` |
-| | TC-AP-M08 | 6GHz WiFi 6 40M | 802.11ax | 40 MHz | `hw_mode=a`, `channel=37`, `ieee80211ax=1`, `op_class=132` |
-| | TC-AP-M09 | 6GHz WiFi 6 20M | 802.11ax | 20 MHz | `hw_mode=a`, `channel=37`, `ieee80211ax=1`, `op_class=131` |
-| **5 GHz** | TC-AP-M10 | 5GHz WiFi 7 160M | 802.11be | 160 MHz | `hw_mode=a`, `channel=36`, `ieee80211be=1`, `vht_oper_centr_freq_seg0_idx=50` |
-| | TC-AP-M11 | 5GHz WiFi 7 80M | 802.11be | 80 MHz | `hw_mode=a`, `channel=36`, `ieee80211be=1`, `vht_oper_centr_freq_seg0_idx=42` |
-| | TC-AP-M12 | 5GHz WiFi 7 40M | 802.11be | 40 MHz | `hw_mode=a`, `channel=36`, `ieee80211be=1` |
-| | TC-AP-M13 | 5GHz WiFi 7 20M | 802.11be | 20 MHz | `hw_mode=a`, `channel=36`, `ieee80211be=1` |
-| | TC-AP-M14 | 5GHz WiFi 6 160M | 802.11ax | 160 MHz | `hw_mode=a`, `channel=36`, `ieee80211ax=1`, `vht_oper_centr_freq_seg0_idx=50` |
-| | TC-AP-M15 | 5GHz WiFi 6 80M | 802.11ax | 80 MHz | `hw_mode=a`, `channel=36`, `ieee80211ax=1`, `vht_oper_centr_freq_seg0_idx=42` |
-| | TC-AP-M16 | 5GHz WiFi 6 40M | 802.11ax | 40 MHz | `hw_mode=a`, `channel=36`, `ieee80211ax=1` |
-| | TC-AP-M17 | 5GHz WiFi 6 20M | 802.11ax | 20 MHz | `hw_mode=a`, `channel=36`, `ieee80211ax=1` |
-| | TC-AP-M18 | 5GHz WiFi 5 160M | 802.11ac | 160 MHz | `hw_mode=a`, `channel=36`, `ieee80211ac=1`, `vht_oper_centr_freq_seg0_idx=50` |
-| | TC-AP-M19 | 5GHz WiFi 5 80M | 802.11ac | 80 MHz | `hw_mode=a`, `channel=36`, `ieee80211ac=1`, `vht_oper_centr_freq_seg0_idx=42` |
-| | TC-AP-M20 | 5GHz WiFi 5 40M | 802.11ac | 40 MHz | `hw_mode=a`, `channel=36`, `ieee80211ac=1` |
-| | TC-AP-M21 | 5GHz WiFi 5 20M | 802.11ac | 20 MHz | `hw_mode=a`, `channel=36`, `ieee80211ac=1` |
-| | TC-AP-M22 | 5GHz WiFi 4 40M | 802.11n | 40 MHz | `hw_mode=a`, `channel=36`, `ieee80211n=1` |
-| | TC-AP-M23 | 5GHz WiFi 4 20M | 802.11n | 20 MHz | `hw_mode=a`, `channel=36`, `ieee80211n=1` |
-| **2.4 GHz** | TC-AP-M24 | 2.4GHz WiFi 7 40M | 802.11be | 40 MHz | `hw_mode=g`, `channel=6`, `ieee80211be=1` |
-| | TC-AP-M25 | 2.4GHz WiFi 7 20M | 802.11be | 20 MHz | `hw_mode=g`, `channel=6`, `ieee80211be=1` |
-| | TC-AP-M26 | 2.4GHz WiFi 6 40M | 802.11ax | 40 MHz | `hw_mode=g`, `channel=6`, `ieee80211ax=1` |
-| | TC-AP-M27 | 2.4GHz WiFi 6 20M | 802.11ax | 20 MHz | `hw_mode=g`, `channel=6`, `ieee80211ax=1` |
-| | TC-AP-M28 | 2.4GHz WiFi 4 40M | 802.11n | 40 MHz | `hw_mode=g`, `channel=6`, `ieee80211n=1` |
-| | TC-AP-M29 | 2.4GHz WiFi 4 20M | 802.11n | 20 MHz | `hw_mode=g`, `channel=6`, `ieee80211n=1` |
+hostapd.conf 以 `key=value` **逐行比對完整值**，並檢查「受控 key」：`ieee80211n/ac/ax/be`、`ht_capab`、`op_class`、`vht/he/eht_oper_chwidth`、`vht/he/eht_oper_centr_freq_seg0_idx`。凡未列在該案例預期中的受控 key 都必須不存在，因此 20M 與 40M 互換、WiFi 6 preset 誤帶 `ieee80211be` 等錯誤都會判 FAIL。
+
+共用縮寫：
+- **HT40** = `ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40]`；**HT20** = `ht_capab=[HT20][SHORT-GI-20]`
+- 協定旗標：6G be = `be,ax`；6G ax = `ax`；5G be = `be,ax,ac,n`；5G ax = `ax,ac,n`；ac = `ac,n`；2.4G be = `be,ax,n`；2.4G ax = `ax,n`；n = `n`
+
+| 頻段 | TC ID | 測試案例名稱 | 預期內容（除 `hw_mode` / `channel` 與協定旗標外） |
+|:---:|:---|:---|:---|
+| **6 GHz**<br>`hw_mode=a`<br>`channel=37` | TC-AP-M01 | 6GHz WiFi 7 320M | `eht_oper_chwidth=3`, `he_oper_chwidth=2`, he 中心 `47`, eht 中心 `31`, `op_class=137` |
+| | TC-AP-M02 | 6GHz WiFi 7 160M | `eht_oper_chwidth=2`, `he_oper_chwidth=2`, he/eht 中心 `47`, `op_class=134` |
+| | TC-AP-M03 | 6GHz WiFi 7 80M | `eht_oper_chwidth=1`, `he_oper_chwidth=1`, he/eht 中心 `39`, `op_class=133` |
+| | TC-AP-M04 | 6GHz WiFi 7 40M | `eht_oper_chwidth=0`, `he_oper_chwidth=0`, he/eht 中心 `35`, `op_class=132` |
+| | TC-AP-M05 | 6GHz WiFi 7 20M | `op_class=131`（無任何 chwidth / 中心頻點） |
+| | TC-AP-M06 | 6GHz WiFi 6 160M | `he_oper_chwidth=2`, he 中心 `47`, `op_class=134` |
+| | TC-AP-M07 | 6GHz WiFi 6 80M | `he_oper_chwidth=1`, he 中心 `39`, `op_class=133` |
+| | TC-AP-M08 | 6GHz WiFi 6 40M | `he_oper_chwidth=0`, he 中心 `35`, `op_class=132` |
+| | TC-AP-M09 | 6GHz WiFi 6 20M | `op_class=131` |
+| **5 GHz**<br>`hw_mode=a`<br>`channel=36` | TC-AP-M10 | 5GHz WiFi 7 160M | HT40, vht/he/eht chwidth `2`, vht/he/eht 中心 `50` |
+| | TC-AP-M11 | 5GHz WiFi 7 80M | HT40, vht/he/eht chwidth `1`, vht/he/eht 中心 `42` |
+| | TC-AP-M12 | 5GHz WiFi 7 40M | HT40 |
+| | TC-AP-M13 | 5GHz WiFi 7 20M | HT20 |
+| | TC-AP-M14 | 5GHz WiFi 6 160M | HT40, vht/he chwidth `2`, vht/he 中心 `50` |
+| | TC-AP-M15 | 5GHz WiFi 6 80M | HT40, vht/he chwidth `1`, vht/he 中心 `42` |
+| | TC-AP-M16 | 5GHz WiFi 6 40M | HT40 |
+| | TC-AP-M17 | 5GHz WiFi 6 20M | HT20 |
+| | TC-AP-M18 | 5GHz WiFi 5 160M | HT40, `vht_oper_chwidth=2`, vht 中心 `50` |
+| | TC-AP-M19 | 5GHz WiFi 5 80M | HT40, `vht_oper_chwidth=1`, vht 中心 `42` |
+| | TC-AP-M20 | 5GHz WiFi 5 40M | HT40 |
+| | TC-AP-M21 | 5GHz WiFi 5 20M | HT20 |
+| | TC-AP-M22 | 5GHz WiFi 4 40M | HT40 |
+| | TC-AP-M23 | 5GHz WiFi 4 20M | HT20 |
+| **2.4 GHz**<br>`hw_mode=g`<br>`channel=6` | TC-AP-M24 | 2.4GHz WiFi 7 40M | HT40 |
+| | TC-AP-M25 | 2.4GHz WiFi 7 20M | HT20 |
+| | TC-AP-M26 | 2.4GHz WiFi 6 40M | HT40 |
+| | TC-AP-M27 | 2.4GHz WiFi 6 20M | HT20 |
+| | TC-AP-M28 | 2.4GHz WiFi 4 40M | HT40 |
+| | TC-AP-M29 | 2.4GHz WiFi 4 20M | HT20 |
 
 ---
 
@@ -157,7 +180,7 @@ flowchart TD
 powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1 -RfAll
 ```
 
-#### B. 快速靜態矩陣驗證（約 1 分鐘）
+#### B. 快速靜態矩陣驗證（約 4 分鐘）
 適合日常修改程式碼後快速回歸測試配置生成邏輯：
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1 -MatrixOnly
@@ -191,9 +214,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1
 
 ```markdown
 ===============================================================================================
-### QWiFiTestTool Comprehensive E2E Verification Report (FME170Q)
+### QWiFiTestTool Comprehensive E2E Verification Report
 - Time: 2026-09-16 17:30:11
-- Target Module: Qualcomm FME170Q-865 (WCN7851-5)
+- Target Module: [11] Quectel FME170Q-865 (Qualcomm WCN7851-5)
+- Target Interface: wlan0
 - Target Kernel: 5.10.160-ab915
 
 | Category | TC ID | Test Case | Status | Verification Details |
@@ -204,8 +228,19 @@ powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1
 | AP Hardware RF | TC-RF-29 | 2.4GHz WiFi 4 20M RF TX | [PASS] | Physical RF 20 MHz perfectly matched, teardown clean |
 ===============================================================================================
 
->> Summary: Total 29 | Passed: 29 | Failed: 0 | Pass Rate: 100%
+>> Summary: Total 29 | Passed: 29 | Failed: 0 | Inconclusive: 0 | Pass Rate: 100%
+>> Artifacts: C:\Users\<user>\AppData\Local\Temp\qwt_e2e_20260916_172801
 ```
+
+狀態共三種：`PASS`、`FAIL`、`INCONCLUSIVE`（設定檔正確但 RF 掃描 0 BSS，無法實體驗證）。`Artifacts` 目錄中：
+
+| 檔案 | 產生時機 | 內容 |
+|:---|:---|:---|
+| `results.json` | 每次 | 模組、網卡、Summary 與所有測項結果 |
+| `<TC>.tui.log` | FAIL | 該測項完整 TUI 畫面紀錄（已去除 ANSI 色碼） |
+| `<TC>.hostapd.conf` / `<TC>.wpa_supplicant.conf` | FAIL | 失敗當下的設定檔 |
+| `<TC>.dmesg.log` | AP 啟動失敗 | `dmesg` 最後 200 行 |
+| `<TC>.iw_info.log` | RF 斷言失敗 | `iw dev <iface> info` |
 
 ---
 
@@ -228,16 +263,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1
 
 在屏蔽室或 RF 靜默環境下，`iw scan` 可能回傳 0 個 BSS。V1.10 前這會因「無頻率洩漏」而假 PASS。
 
-現在 0 BSS 結果標示為 `inconclusive`（無法驗證頻段邊界），測試仍 PASS 但報告中明確註記：
+現在 0 BSS 的結果狀態為 **`INCONCLUSIVE`**（不計入 PASS，也不使 exit code 失敗），報告中註記：
 
 ```
 Policy verified + RF Scan: 0 BSS (inconclusive, cannot verify band boundary)
 ```
 
-### 6.3 ReadLineAsync 超時防護
+### 6.3 輸出讀取與超時防護
 
-Phase 3 AP 射頻測試使用 `ReadLineAsync()` + `.Wait(1000ms)` 取代同步 `ReadLine()`。
-當 TUI 停止輸出時，30 秒 timeout 迴圈正確觸發超時並報 FAIL，避免腳本永久掛起。
+TUI 輸出改由背景執行緒（`QwtStreamPump`）持續讀取原始位元組，連不換行的提示也能收到，並記錄最後一次輸出的時間點作為「停在提示上」的判斷依據。
+Phase 3 每 500ms 檢查一次就緒（`Ctrl+C` 提示）或失敗字串（`❌ 錯誤:` / `❌ Error:` / hostapd 啟動失敗），逾時（一般 35 秒、DFS 120 秒）即判 FAIL，避免腳本永久掛起。
 
 ---
 

@@ -3,19 +3,107 @@
     [switch]$RfOnly,
     [switch]$RfAll,
     [switch]$ApOnly,
-    [switch]$StaOnly
+    [switch]$StaOnly,
+    # Only Phase 4 (diagnosis menu, driver unload/load/reload, AP after reload). Opt-in: it reloads
+    # the driver, and the board may need a reboot afterwards if the reload leaves the radio degraded.
+    [switch]$DiagOnly,
+    # Module is picked by name from the tool's own menu, so reordering the XML cannot misdirect the tests
+    [string]$ModuleName = "FME170Q",
+    [string]$Iface = "wlan0",
+    # Fake daemons are bound to this interface; they must survive every cleanup aimed at $Iface
+    [string]$CanaryIface = "eth9",
+    # results.json and per-case failure artifacts (TUI transcript, configs, dmesg) are written here
+    [string]$OutDir = (Join-Path $env:TEMP ("qwt_e2e_" + (Get-Date -Format "yyyyMMdd_HHmmss")))
 )
 
 $ErrorActionPreference = "Continue"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
+# Child stdin writers are created with Console.InputEncoding at Process.Start, and a UTF-8 encoding
+# with BOM writes EF BB BF right away: the tool would read "﻿y" and ignore the language answer.
+try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch {}
 
 $TARGET_BIN = "/data/local/tmp/QWifiTestTool"
-$TEST_IFACE = "wlan0"
+$TEST_IFACE = $Iface
 # Board-side cleanup helper: kills only daemons bound to $TEST_IFACE (keeps e.g. eth0 DHCP alive)
 $CLEANUP_SH = "/data/local/tmp/qwt_board_cleanup.sh"
+# Board-side canary helper: fake udhcpc/dnsmasq/wpa_supplicant/hostapd bound to $CanaryIface
+$CANARY_SH = "/data/local/tmp/qwt_canary.sh"
+$CANARY_NAMES = @("udhcpc", "dnsmasq", "wpa_supplicant", "hostapd")
+# The tests overwrite and delete these board files; originals are backed up here and restored at the end
+$BACKUP_DIR = "/data/local/tmp/qwt_e2e_backup"
+$BOARD_CONFIGS = "/etc/wpa_supplicant.conf /etc/hostapd.conf /etc/dnsmasq.conf"
+# The tool is considered to be waiting on a prompt once its output has been quiet this long
+$QUIET_MS = 300
+# Printed by the tool when it rejects an input, which means the scripted inputs went out of step
+$INVALID_INPUT_RE = "無效|Invalid (option|selection|country code|channel)"
+$GOODBYE_RE = "再見!|Goodbye!"
+# ui.ShowError prefix and the hostapd init failure message (zh and en)
+$AP_FAIL_RE = "❌ 錯誤:|❌ Error:|hostapd 啟動失敗|hostapd failed to start|Could not initialize interface"
+# CJK ideographs / punctuation / full-width forms: must not appear once English UI is selected
+$CJK_RE = '[　-〿㐀-䶿一-鿿＀-￯]'
+
 $GlobalResults = [System.Collections.Generic.List[PSObject]]::new()
+$MODULE_IDX = ""
+$MODULE_LABEL = ""
+# Main kernel module name, read from the diagnosis output ("[Main] <name>: loaded")
+$DRIVER_MOD = ""
+# Canary bookkeeping: PIDs at start, the phase after which each one was found dead, phases checked
+$CanaryPids = @{}
+$CanaryDeaths = [ordered]@{}
+$CanaryChecked = [System.Collections.Generic.List[string]]::new()
+$CanaryError = ""
+$CanaryInconclusive = $false
+
+if (-not ("QwtStreamPump" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Text;
+using System.Threading;
+
+// Drains a child process stream on a background thread. Unlike ReadLine it also captures
+// prompts printed without a trailing newline, and records when output last arrived.
+public class QwtStreamPump {
+    private readonly Stream _stream;
+    private readonly StringBuilder _buf = new StringBuilder();
+    private readonly object _lock = new object();
+    private long _lastTicks = DateTime.UtcNow.Ticks;
+    private volatile bool _ended;
+
+    public QwtStreamPump(Stream stream) {
+        _stream = stream;
+        Thread t = new Thread(Run);
+        t.IsBackground = true;
+        t.Start();
+    }
+
+    private void Run() {
+        Decoder dec = new UTF8Encoding(false).GetDecoder();
+        byte[] bytes = new byte[4096];
+        char[] chars = new char[8192];
+        try {
+            int n;
+            while ((n = _stream.Read(bytes, 0, bytes.Length)) > 0) {
+                int c = dec.GetChars(bytes, 0, n, chars, 0);
+                lock (_lock) {
+                    _buf.Append(chars, 0, c);
+                    _lastTicks = DateTime.UtcNow.Ticks;
+                }
+            }
+        } catch (Exception) {
+        }
+        _ended = true;
+    }
+
+    public bool Ended { get { return _ended; } }
+    public int Length { get { lock (_lock) { return _buf.Length; } } }
+    public double IdleMs { get { lock (_lock) { return (DateTime.UtcNow.Ticks - _lastTicks) / 10000.0; } } }
+    public string Text { get { lock (_lock) { return _buf.ToString(); } } }
+}
+'@
+}
 
 function Exec-Adb {
     param([string]$Cmd)
@@ -24,16 +112,63 @@ function Exec-Adb {
     return ($out -join "`n").Trim()
 }
 
-function Push-CleanupHelper {
-    # Normalize to LF (a CRLF checkout would break sh on the board), then push
-    $src = Join-Path $PSScriptRoot "qwt_board_cleanup.sh"
+function Remove-Ansi {
+    param([string]$Text)
+    return (($Text -replace "\x1b\[[0-9;?]*[A-Za-z]", "") -replace "`r", "")
+}
+
+function Save-Artifact {
+    # Writes a failure artifact (transcript, config, dmesg) to $OutDir as <TcId>.<Name>
+    param([string]$TcId, [string]$Name, [string]$Content)
+    $path = Join-Path $OutDir "$TcId.$Name"
+    [System.IO.File]::WriteAllText($path, $Content, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Add-Result {
+    param([string]$Category, [string]$TcId, [string]$Name, [string]$Status, [string]$Details)
+    $GlobalResults.Add([PSCustomObject]@{
+        Category = $Category
+        Id = $TcId
+        Name = $Name
+        Status = $Status
+        Details = $Details
+    })
+}
+
+function Push-BoardScript {
+    # Pushes scripts/<Name> to $Dest, normalized to LF (a CRLF checkout would break sh on the board)
+    param([string]$Name, [string]$Dest)
+    $src = Join-Path $PSScriptRoot $Name
     if (-not (Test-Path $src)) { return $false }
-    $tmp = Join-Path $env:TEMP "qwt_board_cleanup.sh"
+    $tmp = Join-Path $env:TEMP $Name
     [System.IO.File]::WriteAllText($tmp, ((Get-Content -Raw $src) -replace "`r`n", "`n"))
-    adb push $tmp $CLEANUP_SH 2>&1 | Out-Null
+    adb push $tmp $Dest 2>&1 | Out-Null
     $ok = ($LASTEXITCODE -eq 0)
     Remove-Item $tmp -ErrorAction SilentlyContinue
     return $ok
+}
+
+function Backup-BoardConfigs {
+    # A leftover backup means a previous run was interrupted before restoring: it still holds the
+    # originals, so it is kept instead of being overwritten with test-generated files.
+    $cmd = 'if [ -f @BK@/.done ]; then echo REUSE; else rm -rf @BK@; mkdir -p @BK@ && for f in @FILES@; do if [ -f $f ]; then cp -p $f @BK@/; else echo $f >> @BK@/.absent; fi; done && touch @BK@/.done && echo NEW; fi'
+    $out = Exec-Adb ($cmd.Replace("@BK@", $BACKUP_DIR).Replace("@FILES@", $BOARD_CONFIGS))
+    if ($out -match "REUSE") {
+        Write-Host "[WARN] Found backup from an interrupted run in $BACKUP_DIR; keeping it (it holds the originals)" -ForegroundColor Yellow
+        return $true
+    }
+    return ($out -match "NEW")
+}
+
+function Restore-BoardConfigs {
+    # Puts back the original files and deletes the ones that did not exist before the run
+    $cmd = 'if [ -f @BK@/.done ]; then for f in @FILES@; do b=$(basename $f); if [ -f @BK@/$b ]; then cp -p @BK@/$b $f; elif grep -qxF $f @BK@/.absent 2>/dev/null; then rm -f $f; fi; done; rm -rf @BK@; echo RESTORED; fi'
+    $out = Exec-Adb ($cmd.Replace("@BK@", $BACKUP_DIR).Replace("@FILES@", $BOARD_CONFIGS))
+    if ($out -match "RESTORED") {
+        Write-Host "Board configs restored ($BOARD_CONFIGS)" -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Board config restore did not run; check $BACKUP_DIR on the board" -ForegroundColor Yellow
+    }
 }
 
 function Get-IfaceHostapdPids {
@@ -46,51 +181,285 @@ function Get-IfaceHostapdPids {
 function Cleanup-Environment {
     Exec-Adb "sh $CLEANUP_SH $TEST_IFACE 2>/dev/null" | Out-Null
     Exec-Adb "rm -f /etc/hostapd.conf /etc/dnsmasq.conf /var/run/hostapd/* /var/run/wpa_supplicant/* 2>/dev/null" | Out-Null
-    Exec-Adb "ip addr flush dev wlan0 2>/dev/null" | Out-Null
-    Exec-Adb "ip link set wlan0 down 2>/dev/null; sleep 0.3; ip link set wlan0 up 2>/dev/null" | Out-Null
+    Exec-Adb "ip addr flush dev $TEST_IFACE 2>/dev/null" | Out-Null
+    Exec-Adb "ip link set $TEST_IFACE down 2>/dev/null; sleep 0.3; ip link set $TEST_IFACE up 2>/dev/null" | Out-Null
 }
 
-function Run-ToolSession {
-    param(
-        [string[]]$Inputs,
-        [int]$WaitAfterMs = 1200
-    )
+# ==================== Interface isolation canaries ====================
 
+function ConvertFrom-CanaryOutput {
+    # Parses "alive|dead <name> <pid>" lines into @{ name = @{ Alive; Pid } }
+    param([string]$Text)
+    $state = @{}
+    foreach ($line in ($Text -split "`n")) {
+        if ($line.Trim() -match '^(alive|dead)\s+(\S+)\s+(\S+)$') {
+            $state[$matches[2]] = @{ Alive = ($matches[1] -eq "alive"); Pid = $matches[3] }
+        }
+    }
+    return $state
+}
+
+function Start-Canaries {
+    # Starts the canaries and proves the check is not vacuous: the cleanup rules must classify
+    # every canary as a daemon of $CanaryIface (positive control) and none as one of $TEST_IFACE.
+    $out = Exec-Adb "sh $CANARY_SH start $CanaryIface"
+    if ($out -match "unsupported shell") {
+        $script:CanaryInconclusive = $true
+        $script:CanaryError = "canaries need a non-busybox shell ($($out.Trim()))"
+        return
+    }
+    $state = ConvertFrom-CanaryOutput $out
+    foreach ($n in $CANARY_NAMES) {
+        if (-not ($state.ContainsKey($n) -and $state[$n].Alive)) {
+            $script:CanaryError = "canary '$n' failed to start ($($out -replace "`n", '; '))"
+            return
+        }
+        $script:CanaryPids[$n] = $state[$n].Pid
+    }
+
+    $names = $CANARY_NAMES -join " "
+    $own = @((Exec-Adb "sh $CLEANUP_SH --dry-run $CanaryIface $names") -split "`n" | ForEach-Object { ($_.Trim() -split '\s+')[0] })
+    $test = @((Exec-Adb "sh $CLEANUP_SH --dry-run $TEST_IFACE $names") -split "`n" | ForEach-Object { ($_.Trim() -split '\s+')[0] })
+    foreach ($n in $CANARY_NAMES) {
+        $p = $CanaryPids[$n]
+        if ($own -notcontains $p) { $script:CanaryError = "positive control failed: cleanup rules do not see canary '$n' ($p) as a $CanaryIface daemon"; return }
+        if ($test -contains $p) { $script:CanaryError = "cleanup rules would kill canary '$n' ($p) when cleaning $TEST_IFACE"; return }
+    }
+    Write-Host "Canaries on ${CanaryIface}: $(($CANARY_NAMES | ForEach-Object { "$_($($CanaryPids[$_]))" }) -join ', ')" -ForegroundColor Green
+}
+
+function Update-CanaryStatus {
+    # Records, for each canary, the first phase after which it was found dead
+    param([string]$After)
+    if ($CanaryError -or $CanaryPids.Count -eq 0) { return }
+    $state = ConvertFrom-CanaryOutput (Exec-Adb "sh $CANARY_SH check")
+    foreach ($n in $CANARY_NAMES) {
+        $alive = $state.ContainsKey($n) -and $state[$n].Alive -and $state[$n].Pid -eq $CanaryPids[$n]
+        if (-not $alive -and -not $CanaryDeaths.Contains($n)) { $CanaryDeaths[$n] = $After }
+    }
+    $CanaryChecked.Add($After)
+}
+
+function Add-CanaryResult {
+    $id = "TC-SYS-01"
+    $name = "Daemons on other interfaces survive"
+    if ($CanaryInconclusive) {
+        Add-Result "Interface Isolation" $id $name "INCONCLUSIVE" $CanaryError
+    } elseif ($CanaryError) {
+        Add-Result "Interface Isolation" $id $name "FAIL" $CanaryError
+    } elseif ($CanaryDeaths.Count -gt 0) {
+        $killed = ($CanaryDeaths.Keys | ForEach-Object { "$_ (found dead after $($CanaryDeaths[$_]))" }) -join ", "
+        Add-Result "Interface Isolation" $id $name "FAIL" "Killed although bound to ${CanaryIface}: $killed"
+    } else {
+        Add-Result "Interface Isolation" $id $name "PASS" "$($CANARY_NAMES -join '/') on $CanaryIface alive after: $($CanaryChecked -join ', ')"
+    }
+}
+
+# ==================== Tool session driver ====================
+
+function Start-ToolSession {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "adb"
     $psi.Arguments = "shell -t $TARGET_BIN"
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
-    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     $psi.UseShellExecute = $false
 
     $proc = [System.Diagnostics.Process]::Start($psi)
-
-    # Initial delay for tool banner & sanity check
-    Start-Sleep -Milliseconds 700
-
-    foreach ($inp in $Inputs) {
-        try {
-            $proc.StandardInput.WriteLine($inp)
-        } catch {
-            break
-        }
-        if ($inp -eq "y" -or $inp -eq "Y") {
-            Start-Sleep -Milliseconds 800
-        } else {
-            Start-Sleep -Milliseconds 400
-        }
+    return [PSCustomObject]@{
+        Proc = $proc
+        In   = $proc.StandardInput
+        Out  = [QwtStreamPump]::new($proc.StandardOutput.BaseStream)
+        Err  = [QwtStreamPump]::new($proc.StandardError.BaseStream)
     }
+}
 
-    Start-Sleep -Milliseconds $WaitAfterMs
-    try { $proc.Kill() } catch {}
+function Wait-ToolIdle {
+    # Returns once the tool has printed something past $Mark and then gone quiet for $QUIET_MS,
+    # i.e. it is most likely blocked on its next prompt. Returns $false on timeout or exit.
+    param($Session, [int]$Mark, [int]$TimeoutMs = 15000)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        if ($Session.Out.Length -gt $Mark -and $Session.Out.IdleMs -ge $QUIET_MS) { return $true }
+        if ($Session.Out.Ended) { return $false }
+        Start-Sleep -Milliseconds 50
+    }
+    return $false
+}
+
+function Send-ToolInputs {
+    # Feeds inputs one at a time, each after the tool has settled on its prompt.
+    # Returns $false if the tool exited before every input was sent.
+    param($Session, [string[]]$Inputs)
+    [void](Wait-ToolIdle $Session 0 20000)   # banner + language prompt
+    foreach ($inp in $Inputs) {
+        if ($Session.Proc.HasExited) { return $false }
+        $mark = $Session.Out.Length
+        try { $Session.In.WriteLine($inp) } catch { return $false }
+        [void](Wait-ToolIdle $Session $mark)
+    }
+    return $true
+}
+
+function Get-SessionText {
+    param($Session)
+    return (Remove-Ansi ($Session.Out.Text + $Session.Err.Text))
+}
+
+function Stop-ToolSession {
+    param($Session)
+    try { if (-not $Session.Proc.HasExited) { $Session.Proc.Kill() } } catch {}
     Exec-Adb "killall -9 QWifiTestTool 2>/dev/null" | Out-Null
     Start-Sleep -Milliseconds 300
 }
 
+function Invoke-ToolScript {
+    # Runs one scripted session that must end with [0] at the main menu (tool prints goodbye and exits).
+    # Ok=$false means the inputs went out of step with the menus or the tool hung/crashed.
+    param([string[]]$Inputs)
+    $s = Start-ToolSession
+    $allSent = Send-ToolInputs $s $Inputs
+    $exited = $s.Proc.WaitForExit(8000)
+    $text = Get-SessionText $s
+    Stop-ToolSession $s
+
+    $reason = ""
+    if (-not $allSent) {
+        $reason = "tool exited before all inputs were sent"
+    } elseif ($text -match $INVALID_INPUT_RE) {
+        $reason = "input out of step with menus (tool printed '$($matches[0])')"
+    } elseif (-not $exited) {
+        $reason = "tool did not exit after the final [0] (inputs out of step or hung)"
+    } elseif ($text -notmatch $GOODBYE_RE) {
+        $reason = "tool exited without the goodbye message (crash?)"
+    }
+    return [PSCustomObject]@{ Ok = ($reason -eq ""); Reason = $reason; Transcript = $text }
+}
+
+function Resolve-ModuleIndex {
+    # Reads the tool's module menu and returns the index whose name contains $ModuleName
+    $s = Start-ToolSession
+    [void](Wait-ToolIdle $s 0 20000)
+    $mark = $s.Out.Length
+    try { $s.In.WriteLine("N") } catch {}
+    [void](Wait-ToolIdle $s $mark)
+    $text = Get-SessionText $s
+    Stop-ToolSession $s
+
+    $hits = @([regex]::Matches($text, '(?m)^\s*\[(\d+)\]\s+(.+)$') |
+        Where-Object { $_.Groups[2].Value -match [regex]::Escape($ModuleName) })
+    if ($hits.Count -ne 1) {
+        Write-Host "Error: expected exactly 1 module matching '$ModuleName' in the tool menu, found $($hits.Count)" -ForegroundColor Red
+        foreach ($h in $hits) { Write-Host "  $($h.Value.Trim())" }
+        return $false
+    }
+    $script:MODULE_IDX = $hits[0].Groups[1].Value
+    $script:MODULE_LABEL = ($hits[0].Groups[2].Value -replace '\s+', ' ').Trim()
+    return $true
+}
+
+function Get-LangInput {
+    # Answer to the "Switch to English? [y/N]" prompt
+    param([string]$Lang)
+    if ($Lang -eq "en") { return "y" }
+    return "N"
+}
+
+function Find-CjkLines {
+    # Lines with CJK text after the language prompt (the banner before it is always Chinese)
+    param([string]$Transcript)
+    $i = $Transcript.IndexOf("Switch to English?")
+    $text = if ($i -ge 0) { $Transcript.Substring($i) } else { $Transcript }
+    return @($text -split "`n" | Where-Object { $_ -match $CJK_RE } | ForEach-Object { $_.Trim() } | Select-Object -Unique)
+}
+
+function Format-CjkFinding {
+    param([string[]]$Lines)
+    $shown = ($Lines | Select-Object -First 3) -join " | "
+    return "Chinese text in English UI ($($Lines.Count) lines): $shown"
+}
+
+function Wait-ToolText {
+    # Waits until the output after raw offset $From matches $Pattern.
+    # Returns "ok", "fail:<text>" ($FailPattern matched first), "exit" or "timeout".
+    param($Session, [int]$From, [string]$Pattern, [string]$FailPattern = "", [int]$TimeoutMs = 15000)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        $raw = $Session.Out.Text
+        $t = if ($From -lt $raw.Length) { Remove-Ansi $raw.Substring($From) } else { "" }
+        if ($FailPattern -and $t -match $FailPattern) { return "fail:$($matches[0])" }
+        if ($t -match $Pattern) { return "ok" }
+        if ($Session.Out.Ended) { return "exit" }
+        Start-Sleep -Milliseconds 200
+    }
+    return "timeout"
+}
+
+function Invoke-ToolSteps {
+    # Expect-style session. Each step is a hashtable:
+    #   @{ Send = "x"; Expect = "regex"; Fail = "regex"; Timeout = ms }  send a line, then wait for Expect
+    #   @{ Expect = "regex" }                                            wait from the start of output
+    #   @{ Check = { ... } }                                             board check; returns "" or an error
+    # The last step must make the tool exit. Returns Ok / Reason / Transcript.
+    param([object[]]$Steps)
+    $s = Start-ToolSession
+    $reason = ""
+    $n = 0
+    foreach ($st in $Steps) {
+        $n++
+        if ($st.Check) {
+            $err = & $st.Check
+            if ($err) { $reason = "step ${n}: $err"; break }
+            continue
+        }
+        $mark = 0
+        $label = "at start"
+        if ($null -ne $st.Send) {
+            $mark = $s.Out.Length
+            $label = "after '$($st.Send)'"
+            try { $s.In.WriteLine($st.Send) } catch { $reason = "step ${n}: tool exited before '$($st.Send)' was sent"; break }
+        }
+        $timeout = if ($st.Timeout) { $st.Timeout } else { 15000 }
+        $r = Wait-ToolText $s $mark $st.Expect $st.Fail $timeout
+        if ($r -ne "ok") {
+            $why = switch -Regex ($r) {
+                '^fail:' { "tool reported '$($r.Substring(5))'" }
+                '^exit$' { "tool exited while waiting for /$($st.Expect)/" }
+                default { "/$($st.Expect)/ not seen within $([int]($timeout / 1000))s" }
+            }
+            $reason = "step $n ($label): $why"
+            break
+        }
+    }
+    $exited = if ($reason) { $true } else { $s.Proc.WaitForExit(8000) }
+    $text = Get-SessionText $s
+    Stop-ToolSession $s
+    if (-not $exited) { $reason = "tool did not exit after the last step" }
+    return [PSCustomObject]@{ Ok = ($reason -eq ""); Reason = $reason; Transcript = $text }
+}
+
 # ==================== Phase 1: AP Preset Matrix (29 Presets) ====================
+
+# Keys whose presence depends on the preset; any of them not listed in a case's expectation must be absent
+$AP_MANAGED_KEYS = @(
+    "ieee80211n", "ieee80211ac", "ieee80211ax", "ieee80211be", "ht_capab", "op_class",
+    "vht_oper_chwidth", "he_oper_chwidth", "eht_oper_chwidth",
+    "vht_oper_centr_freq_seg0_idx", "he_oper_centr_freq_seg0_idx", "eht_oper_centr_freq_seg0_idx"
+)
+
+function ConvertFrom-ConfText {
+    # Parses key=value lines (comments and blanks ignored) into a hashtable
+    param([string]$Text)
+    $map = @{}
+    foreach ($line in ($Text -split "`n")) {
+        $l = $line.Trim()
+        if ($l -eq "" -or $l.StartsWith("#")) { continue }
+        $i = $l.IndexOf("=")
+        if ($i -gt 0) { $map[$l.Substring(0, $i)] = $l.Substring($i + 1) }
+    }
+    return $map
+}
 
 function Test-ApPresetConfig {
     param(
@@ -98,7 +467,10 @@ function Test-ApPresetConfig {
         [string]$Name,
         [int]$BandKey,
         [int]$PresetKey,
-        [string[]]$ExpectedConfTokens
+        # Exact key=value lines; all other $AP_MANAGED_KEYS must be absent
+        [string[]]$Expected,
+        # "en" also asserts that no Chinese text is shown after the language prompt
+        [string]$Lang = "zh"
     )
 
     Write-Host -NoNewline "  [$TcId] $Name ... "
@@ -106,54 +478,52 @@ function Test-ApPresetConfig {
     # Remove previous config so we know it is freshly generated
     Exec-Adb "rm -f /etc/hostapd.conf" | Out-Null
 
-    # Inputs: Language(N) -> Module(11: FME170Q) -> Menu(4: AP Edit) -> Submenu(4: Preset Wizard) -> Band -> Preset -> Save(y) -> Exit AP(0) -> Exit Main(0)
-    $inputs = @("N", "11", "4", "4", "$BandKey", "$PresetKey", "y", "0", "0")
-    Run-ToolSession -Inputs $inputs
+    # Inputs: Language -> Module -> Menu(4: AP Edit) -> Submenu(4: Preset Wizard) -> Band -> Preset -> Save(y) -> Exit Main(0)
+    # (saving returns straight to the main menu, so a single [0] exits the tool)
+    $session = Invoke-ToolScript @((Get-LangInput $Lang), $MODULE_IDX, "4", "4", "$BandKey", "$PresetKey", "y", "0")
 
-    # Verify generated /etc/hostapd.conf
     $hostapdConf = Exec-Adb "cat /etc/hostapd.conf 2>/dev/null"
 
-    if ([string]::IsNullOrWhiteSpace($hostapdConf)) {
-        Write-Host "[FAIL] (hostapd.conf not generated)" -ForegroundColor Red
-        $GlobalResults.Add([PSCustomObject]@{
-            Category = "AP Preset Matrix"
-            Id = $TcId
-            Name = $Name
-            Status = "FAIL"
-            Details = "hostapd.conf not generated"
-        })
-        return
+    $mismatches = [System.Collections.Generic.List[string]]::new()
+    if (-not $session.Ok) { $mismatches.Add($session.Reason) }
+    if ($Lang -eq "en") {
+        $cjk = Find-CjkLines $session.Transcript
+        if ($cjk.Count -gt 0) { $mismatches.Add((Format-CjkFinding $cjk)) }
     }
 
-    $mismatches = [System.Collections.Generic.List[string]]::new()
-    foreach ($token in $ExpectedConfTokens) {
-        if (-not $hostapdConf.Contains($token)) {
-            $mismatches.Add("Missing '$token'")
+    if ([string]::IsNullOrWhiteSpace($hostapdConf)) {
+        $mismatches.Add("hostapd.conf not generated")
+    } else {
+        $map = ConvertFrom-ConfText $hostapdConf
+        $expectedKeys = @{}
+        foreach ($kv in $Expected) {
+            $k, $v = $kv.Split("=", 2)
+            $expectedKeys[$k] = $true
+            if (-not $map.ContainsKey($k)) {
+                $mismatches.Add("Missing '$kv'")
+            } elseif ($map[$k] -cne $v) {
+                $mismatches.Add("'$k=$($map[$k])' (expected '$v')")
+            }
+        }
+        foreach ($k in $AP_MANAGED_KEYS) {
+            if ($map.ContainsKey($k) -and -not $expectedKeys.ContainsKey($k)) {
+                $mismatches.Add("Unexpected '$k=$($map[$k])'")
+            }
         }
     }
 
     if ($mismatches.Count -eq 0) {
         Write-Host "[PASS]" -ForegroundColor Green
-        $GlobalResults.Add([PSCustomObject]@{
-            Category = "AP Preset Matrix"
-            Id = $TcId
-            Name = $Name
-            Status = "PASS"
-            Details = "hostapd.conf tokens verified ($($ExpectedConfTokens -join ', '))"
-        })
+        Add-Result "AP Preset Matrix" $TcId $Name "PASS" "hostapd.conf verified ($($Expected.Count) exact lines, no stray width/mode keys)"
     } else {
         Write-Host "[FAIL] ($($mismatches -join ', '))" -ForegroundColor Red
-        $GlobalResults.Add([PSCustomObject]@{
-            Category = "AP Preset Matrix"
-            Id = $TcId
-            Name = $Name
-            Status = "FAIL"
-            Details = ($mismatches -join "; ")
-        })
+        Save-Artifact $TcId "tui.log" $session.Transcript
+        Save-Artifact $TcId "hostapd.conf" $hostapdConf
+        Add-Result "AP Preset Matrix" $TcId $Name "FAIL" ($mismatches -join "; ")
     }
 }
 
-# ==================== Phase 2: STA Policy Matrix (8 Policies) ====================
+# ==================== Phase 2: STA Policy Matrix (11 Policies) ====================
 
 function Test-StaPolicyConfig {
     param(
@@ -162,7 +532,8 @@ function Test-StaPolicyConfig {
         [string[]]$EditInputs,
         [string[]]$ExpectedTokens,
         [string[]]$ForbiddenTokens = @(),
-        [string]$ExpectedBand = "" # "2.4G", "5G_NO_DFS", "5G_DFS", "6G", "ALL"
+        [string]$ExpectedBand = "", # "2.4G", "5G_NO_DFS", "5G_DFS", "6G", "ALL"
+        [string]$Lang = "zh"
     )
 
     Write-Host -NoNewline "  [$TcId] $Name ... "
@@ -171,14 +542,18 @@ function Test-StaPolicyConfig {
     Exec-Adb "sh $CLEANUP_SH $TEST_IFACE wpa_supplicant 2>/dev/null" | Out-Null
     Exec-Adb "rm -f /etc/wpa_supplicant.conf 2>/dev/null" | Out-Null
 
-    # Inputs: Language(N) -> Module(11) -> Menu(2: STA Edit) -> Edit(1) -> [Specific Inputs] -> Finish(0) -> Save(y) -> Exit Main(0)
-    $inputs = @("N", "11", "2", "1") + $EditInputs + @("0", "y", "0")
-    Run-ToolSession -Inputs $inputs
+    # Inputs: Language -> Module -> Menu(2: STA Edit) -> Edit(1) -> [Specific Inputs] -> Finish(0) -> Save(y) -> Exit Main(0)
+    $session = Invoke-ToolScript (@((Get-LangInput $Lang), $MODULE_IDX, "2", "1") + $EditInputs + @("0", "y", "0"))
 
     # Verify /etc/wpa_supplicant.conf
     $wpaConf = Exec-Adb "cat /etc/wpa_supplicant.conf 2>/dev/null"
 
     $mismatches = [System.Collections.Generic.List[string]]::new()
+    if (-not $session.Ok) { $mismatches.Add($session.Reason) }
+    if ($Lang -eq "en") {
+        $cjk = Find-CjkLines $session.Transcript
+        if ($cjk.Count -gt 0) { $mismatches.Add((Format-CjkFinding $cjk)) }
+    }
     foreach ($token in $ExpectedTokens) {
         if (-not $wpaConf.Contains($token)) {
             $mismatches.Add("Missing '$token'")
@@ -192,19 +567,20 @@ function Test-StaPolicyConfig {
 
     # Approach A: Physical RF Scanning Closed-Loop Verification
     $rfScanSummary = ""
+    $inconclusive = $false
     if ($mismatches.Count -eq 0 -and $ExpectedBand -and (-not $MatrixOnly)) {
-        # 1. Ensure clean managed mode on wlan0
+        # 1. Ensure clean managed mode on the test interface
         Exec-Adb "sh $CLEANUP_SH $TEST_IFACE wpa_supplicant hostapd 2>/dev/null" | Out-Null
-        Exec-Adb "ip link set wlan0 down 2>/dev/null; iw dev wlan0 set type managed 2>/dev/null; ip link set wlan0 up 2>/dev/null" | Out-Null
+        Exec-Adb "ip link set $TEST_IFACE down 2>/dev/null; iw dev $TEST_IFACE set type managed 2>/dev/null; ip link set $TEST_IFACE up 2>/dev/null" | Out-Null
         Start-Sleep -Milliseconds 400
 
         # 2. Trigger native nl80211 physical RF probe scan with flush (hardware TX/RX probe)
         $scanOutput = ""
         if ($wpaConf -match 'freq_list=([0-9 ]+)') {
             $freqList = $matches[1].Trim()
-            $scanOutput = Exec-Adb "iw dev wlan0 scan flush freq $freqList"
+            $scanOutput = Exec-Adb "iw dev $TEST_IFACE scan flush freq $freqList"
         } else {
-            $scanOutput = Exec-Adb "iw dev wlan0 scan flush"
+            $scanOutput = Exec-Adb "iw dev $TEST_IFACE scan flush"
         }
 
         # 2.5. Check for iw scan errors (permission denied, device busy, etc.)
@@ -222,10 +598,11 @@ function Test-StaPolicyConfig {
                     [void]$scannedFreqs.Add([int]$matches[1])
                 }
             }
-            $uniqueFreqs = $scannedFreqs | Select-Object -Unique | Sort-Object
+            $uniqueFreqs = @($scannedFreqs | Select-Object -Unique | Sort-Object)
 
-            # 3.5. Guard: 0 BSS = inconclusive (shielded room / scan returned nothing)
+            # 3.5. Guard: 0 BSS = inconclusive (shielded room / no AP on this band), never reported as PASS
             if ($uniqueFreqs.Count -eq 0) {
+                $inconclusive = $true
                 $rfScanSummary = " + RF Scan: 0 BSS (inconclusive, cannot verify band boundary)"
             } else {
                 # 4. Spectrum Enforcement Assertions
@@ -263,24 +640,17 @@ function Test-StaPolicyConfig {
         }
     }
 
-    if ($mismatches.Count -eq 0) {
-        Write-Host "[PASS]" -ForegroundColor Green
-        $GlobalResults.Add([PSCustomObject]@{
-            Category = "STA Policy Matrix"
-            Id = $TcId
-            Name = $Name
-            Status = "PASS"
-            Details = "Policy verified" + $rfScanSummary
-        })
+    if ($mismatches.Count -gt 0) {
+        Write-Host "[FAIL] ($($mismatches -join ', '))" -ForegroundColor Red
+        Save-Artifact $TcId "tui.log" $session.Transcript
+        Save-Artifact $TcId "wpa_supplicant.conf" $wpaConf
+        Add-Result "STA Policy Matrix" $TcId $Name "FAIL" ($mismatches -join "; ")
+    } elseif ($inconclusive) {
+        Write-Host "[INCONCLUSIVE] (config OK, RF scan found 0 BSS)" -ForegroundColor Yellow
+        Add-Result "STA Policy Matrix" $TcId $Name "INCONCLUSIVE" ("Policy verified" + $rfScanSummary)
     } else {
-        Write-Host "[FAIL]" -ForegroundColor Red
-        $GlobalResults.Add([PSCustomObject]@{
-            Category = "STA Policy Matrix"
-            Id = $TcId
-            Name = $Name
-            Status = "FAIL"
-            Details = ($mismatches -join "; ")
-        })
+        Write-Host "[PASS]" -ForegroundColor Green
+        Add-Result "STA Policy Matrix" $TcId $Name "PASS" ("Policy verified" + $rfScanSummary)
     }
 }
 
@@ -294,7 +664,9 @@ function Run-ApRfTestCase {
         [int]$PresetKey,
         [string]$ExpectedTuiMode,
         [string]$ExpectedTuiCh,
-        [string]$ExpectedRfWidth
+        [string]$ExpectedRfWidth,
+        [string]$Lang = "zh",
+        [string]$Category = "AP Hardware RF"
     )
 
     Write-Host ""
@@ -305,100 +677,67 @@ function Run-ApRfTestCase {
     Cleanup-Environment
     Start-Sleep -Seconds 1
 
-    # Inputs: Language(N) -> Module(11) -> Menu(4: AP Edit) -> Preset(4) -> Band -> Preset -> Save(y) -> Start AP(5)
-    $inputs = @("N", "11", "4", "4", "$BandKey", "$PresetKey", "y", "5")
+    # Inputs: Language -> Module -> Menu(4: AP Edit) -> Preset(4) -> Band -> Preset -> Save(y) -> Start AP(5)
+    $session = Start-ToolSession
+    [void](Send-ToolInputs $session @((Get-LangInput $Lang), $MODULE_IDX, "4", "4", "$BandKey", "$PresetKey", "y", "5"))
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "adb"
-    $psi.Arguments = "shell -t $TARGET_BIN"
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-    $psi.UseShellExecute = $false
-
-    $proc = [System.Diagnostics.Process]::Start($psi)
-
-    # Initial delay for tool banner & sanity check
-    Start-Sleep -Milliseconds 600
-
-    foreach ($inp in $inputs) {
-        try {
-            $proc.StandardInput.WriteLine($inp)
-        } catch {
-            break
-        }
-        if ($inp -eq "y" -or $inp -eq "Y") {
-            Start-Sleep -Milliseconds 800
-        } else {
-            Start-Sleep -Milliseconds 400
-        }
-    }
-
-    $capturedOutput = [System.Text.StringBuilder]::new()
-    $apReady = $false
-    $startTime = [System.DateTime]::Now
-
-    # Use ReadLineAsync to avoid infinite blocking when TUI stops outputting
     # DFS CAC requires 60 seconds. Go side waits up to 75s after hostapd start, plus driver load / IP setup.
     $timeoutSec = 35
     if ($BandKey -eq 2 -and ($PresetKey -eq 1 -or $PresetKey -eq 5 -or $PresetKey -eq 9)) {
         $timeoutSec = 120
     }
 
-    $readTask = $proc.StandardOutput.ReadLineAsync()
-    while (([System.DateTime]::Now - $startTime).TotalSeconds -lt $timeoutSec) {
-        if (-not $readTask.Wait(1000)) { continue }
-        $line = $readTask.Result
-        if ($null -eq $line) { break }
-        [void]$capturedOutput.AppendLine($line)
+    $apReady = $false
+    $failReason = ""
+    $printed = 0
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $timeoutSec) {
+        $text = Get-SessionText $session
 
-        $trimmed = $line.Trim()
-        if ($trimmed -match "(\[INFO\]|\[CMD\]|SSID:|channel|width:|Ctrl\+C|stop|fail)") {
-            Write-Host "  [TUI] $trimmed" -ForegroundColor Gray
+        # Echo newly completed TUI lines of interest
+        $lastNl = $text.LastIndexOf("`n")
+        if ($lastNl -ge $printed) {
+            foreach ($line in ($text.Substring($printed, $lastNl - $printed + 1) -split "`n")) {
+                $trimmed = $line.Trim()
+                if ($trimmed -match "(\[INFO\]|\[CMD\]|SSID:|channel|width:|Ctrl\+C|stop|fail)") {
+                    Write-Host "  [TUI] $trimmed" -ForegroundColor Gray
+                }
+            }
+            $printed = $lastNl + 1
         }
 
         # Dynamically extend timeout if DFS CAC is detected in output
-        if ($trimmed -match "(CAC.*60|ieee80211h=1|DFS)") {
-            $timeoutSec = 120
-        }
+        if ($text -match "(CAC.*60|ieee80211h=1|DFS)") { $timeoutSec = 120 }
 
-        if ($line -match "Ctrl\+C") {
-            $apReady = $true
-            break
-        }
-
-        if ($line -match "(\[ERROR\] AP 啟動失敗|Could not initialize interface|AP 啟動逾時|hostapd 啟動失敗|hostapd failed to start|Morse 驅動失敗|網路介面 \S+ 未出現|Channelization Scheme 不符)") {
-            $apReady = $false
-            break
-        }
-        $readTask = $proc.StandardOutput.ReadLineAsync()
+        if ($text -match "Ctrl\+C") { $apReady = $true; break }
+        if ($text -match $AP_FAIL_RE) { $failReason = "tool reported '$($matches[0])'"; break }
+        if ($session.Out.Ended) { $failReason = "tool exited unexpectedly"; break }
+        Start-Sleep -Milliseconds 500
     }
 
-    $fullLog = $capturedOutput.ToString()
-
     if (-not $apReady) {
+        if (-not $failReason) { $failReason = "AP start timeout (${timeoutSec}s)" }
+        Save-Artifact $TcId "tui.log" (Get-SessionText $session)
+        Save-Artifact $TcId "hostapd.conf" (Exec-Adb "cat /etc/hostapd.conf 2>/dev/null")
+        Save-Artifact $TcId "dmesg.log" (Exec-Adb "dmesg | tail -n 200")
+        Stop-ToolSession $session
         Cleanup-Environment
-        try { $proc.Kill() } catch {}
-        Write-Host "  ==> [FAIL] AP start timeout or hostapd stopped abnormally" -ForegroundColor Red
-        $GlobalResults.Add([PSCustomObject]@{
-            Category = "AP Hardware RF"
-            Id = $TcId
-            Name = $Name
-            Status = "FAIL"
-            Details = "AP start timeout or hostapd terminated"
-        })
+        Write-Host "  ==> [FAIL] $failReason" -ForegroundColor Red
+        Add-Result $Category $TcId $Name "FAIL" $failReason
         return
     }
 
-    # Assertion 1: TUI
+    $fullLog = Get-SessionText $session
+
+    # Assertion 1: TUI (plus, for English UI, no Chinese text after the language prompt)
     $tuiModeOk = $fullLog.Contains($ExpectedTuiMode)
     $tuiChOk = $fullLog.Contains($ExpectedTuiCh)
-    $tuiPass = $tuiModeOk -and $tuiChOk
+    $cjk = @()
+    if ($Lang -eq "en") { $cjk = Find-CjkLines $fullLog }
+    $tuiPass = $tuiModeOk -and $tuiChOk -and ($cjk.Count -eq 0)
 
     # Assertion 2: Linux RF state (iw)
-    $iwInfo = Exec-Adb "iw dev wlan0 info"
+    $iwInfo = Exec-Adb "iw dev $TEST_IFACE info"
     $isAp = $iwInfo.Contains("type AP")
 
     if ($ExpectedRfWidth -eq "320 MHz") {
@@ -428,15 +767,22 @@ function Run-ApRfTestCase {
     $hostapdAfter = Get-IfaceHostapdPids
     $teardownPass = ($hostapdAfter -eq "")
 
-    try { $proc.Kill() } catch {}
+    $passed = $tuiPass -and $rfPass -and $daemonPass -and $teardownPass
+    if (-not $passed) {
+        Save-Artifact $TcId "tui.log" (Get-SessionText $session)
+        Save-Artifact $TcId "iw_info.log" $iwInfo
+        Save-Artifact $TcId "hostapd.conf" (Exec-Adb "cat /etc/hostapd.conf 2>/dev/null")
+    }
+
+    Stop-ToolSession $session
     Cleanup-Environment
     Start-Sleep -Milliseconds 500
 
-    $passed = $tuiPass -and $rfPass -and $daemonPass -and $teardownPass
     $statusStr = if ($passed) { "PASS" } else { "FAIL" }
 
     $details = [System.Collections.Generic.List[string]]::new()
-    if (-not $tuiPass) { $details.Add("TUI mismatch (Mode:$tuiModeOk, Ch:$tuiChOk)") }
+    if (-not ($tuiModeOk -and $tuiChOk)) { $details.Add("TUI mismatch (Mode:$tuiModeOk, Ch:$tuiChOk)") }
+    if ($cjk.Count -gt 0) { $details.Add((Format-CjkFinding $cjk)) }
     if (-not $rfPass) { $details.Add("RF state mismatch (AP:$isAp, Width:$rfWidthOk)") }
     if (-not $daemonPass) { $details.Add("hostapd daemon missing") }
     if (-not $teardownPass) { $details.Add("hostapd remaining after stop") }
@@ -446,40 +792,132 @@ function Run-ApRfTestCase {
     $color = if ($passed) { "Green" } else { "Red" }
     Write-Host "  ==> [$($statusStr)] $detailStr" -ForegroundColor $color
 
-    $GlobalResults.Add([PSCustomObject]@{
-        Category = "AP Hardware RF"
-        Id = $TcId
-        Name = $Name
-        Status = $statusStr
-        Details = $detailStr
-    })
+    Add-Result $Category $TcId $Name $statusStr $detailStr
+}
+
+# ==================== Phase 4: Diagnosis & Driver Lifecycle ====================
+
+# zh UI markers used by the diagnosis tests
+$DIAG_PASS_MENU = "所有檢查通過[\s\S]*請輸入選項"
+$DIAG_FAIL = "⚠️  錯誤:|❌ 錯誤:"
+$MAIN_MENU = "選擇操作"
+
+function Get-DriverState {
+    # Returns @{ Loaded; Iface } for $DRIVER_MOD (/proc/modules) and $TEST_IFACE (/sys/class/net)
+    $out = Exec-Adb "grep -c '^$DRIVER_MOD ' /proc/modules; [ -d /sys/class/net/$TEST_IFACE ] && echo iface=1 || echo iface=0"
+    $lines = @($out -split "`n" | ForEach-Object { $_.Trim() })
+    return @{ Loaded = ($DRIVER_MOD -and $lines[0] -match '^[1-9]'); Iface = ($out -match "iface=1") }
+}
+
+function Test-DriverLoaded {
+    # Board check for Invoke-ToolSteps: "" when the driver and interface are both present
+    $st = Get-DriverState
+    if (-not $st.Loaded) { return "driver '$DRIVER_MOD' not in /proc/modules" }
+    if (-not $st.Iface) { return "$TEST_IFACE missing although the driver is loaded" }
+    return ""
+}
+
+function Test-DriverUnloaded {
+    $st = Get-DriverState
+    if ($st.Loaded) { return "driver '$DRIVER_MOD' still in /proc/modules after unload" }
+    if ($st.Iface) { return "$TEST_IFACE still present after unload" }
+    return ""
+}
+
+function Test-DiagCase {
+    param([string]$TcId, [string]$Name, [object[]]$Steps)
+    Write-Host -NoNewline "  [$TcId] $Name ... "
+    Cleanup-Environment
+    $r = Invoke-ToolSteps $Steps
+    if ($r.Ok) {
+        Write-Host "[PASS]" -ForegroundColor Green
+        Add-Result "Diagnosis & Driver" $TcId $Name "PASS" "All steps reached the expected screens"
+    } else {
+        Write-Host "[FAIL] ($($r.Reason))" -ForegroundColor Red
+        Save-Artifact $TcId "tui.log" $r.Transcript
+        Save-Artifact $TcId "dmesg.log" (Exec-Adb "dmesg | tail -n 200")
+        Add-Result "Diagnosis & Driver" $TcId $Name "FAIL" $r.Reason
+    }
+    return $r
+}
+
+function Invoke-DiagnosisPhase {
+    # Steps shared by every case: language, module, then the main menu
+    $intro = @(
+        @{ Expect = "Switch to English" },
+        @{ Send = "N"; Expect = "選擇模組編號" },
+        @{ Send = $MODULE_IDX; Expect = $MAIN_MENU }
+    )
+
+    # TC-DIAG-01: sanity check passes and offers the post-diagnosis menu
+    $r = Test-DiagCase "TC-DIAG-01" "Diagnosis: all checks pass" ($intro + @(
+        @{ Send = "1"; Expect = $DIAG_PASS_MENU; Fail = $DIAG_FAIL; Timeout = 30000 },
+        @{ Send = "0"; Expect = $MAIN_MENU },
+        @{ Send = "0"; Expect = $GOODBYE_RE }
+    ))
+    if ($r.Transcript -match '\[Main\] (\S+): loaded') { $script:DRIVER_MOD = $matches[1] }
+    if (-not $r.Ok -or -not $DRIVER_MOD) {
+        $why = if ($r.Ok) { "main driver name not found in diagnosis output" } else { "TC-DIAG-01 failed" }
+        foreach ($id in "TC-DIAG-02", "TC-DIAG-03", "TC-DIAG-04") {
+            Add-Result "Diagnosis & Driver" $id "(skipped)" "FAIL" "Not run: $why"
+        }
+        return
+    }
+
+    # TC-DIAG-02: unload from the post-diagnosis menu, then diagnosis detects it and loads it back
+    [void](Test-DiagCase "TC-DIAG-02" "Unload driver, reload via diagnosis prompt" ($intro + @(
+        @{ Send = "1"; Expect = $DIAG_PASS_MENU; Fail = $DIAG_FAIL; Timeout = 30000 },
+        @{ Send = "1"; Expect = "驅動已成功卸載[\s\S]*$MAIN_MENU"; Fail = "卸載驅動失敗|❌ 錯誤:"; Timeout = 30000 },
+        @{ Check = { Test-DriverUnloaded } },
+        @{ Send = "1"; Expect = "是否嘗試載入驅動"; Timeout = 30000 },
+        @{ Send = "y"; Expect = $DIAG_PASS_MENU; Fail = "驅動載入失敗|❌ 錯誤:"; Timeout = 60000 },
+        @{ Send = "0"; Expect = $MAIN_MENU },
+        @{ Check = { Test-DriverLoaded } },
+        @{ Send = "0"; Expect = $GOODBYE_RE }
+    )))
+
+    # TC-DIAG-03: unload + reload in one action
+    [void](Test-DiagCase "TC-DIAG-03" "Reload driver from diagnosis menu" ($intro + @(
+        @{ Send = "1"; Expect = $DIAG_PASS_MENU; Fail = $DIAG_FAIL; Timeout = 30000 },
+        @{ Send = "2"; Expect = "驅動已成功重新載入[\s\S]*$MAIN_MENU"; Fail = "卸載驅動失敗|載入驅動失敗|❌ 錯誤:"; Timeout = 60000 },
+        @{ Check = { Test-DriverLoaded } },
+        @{ Send = "0"; Expect = $GOODBYE_RE }
+    )))
+
+    # TC-DIAG-04: the reloaded driver must still bring up an AP
+    Run-ApRfTestCase -TcId "TC-DIAG-04" -Name "2.4GHz AP RF TX after driver reload" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz" -Category "Diagnosis & Driver"
 }
 
 function Show-SummaryReport {
+    param([string]$KernelVer)
     Write-Host ""
     Write-Host ("=" * 95) -ForegroundColor Cyan
-    Write-Host "### QWiFiTestTool Comprehensive E2E Verification Report (FME170Q)" -ForegroundColor Yellow
+    Write-Host "### QWiFiTestTool Comprehensive E2E Verification Report" -ForegroundColor Yellow
     Write-Host "- Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-    Write-Host "- Target Module: Qualcomm FME170Q-865 (WCN7851-5)"
-    $kernelVer = Exec-Adb "uname -r"
-    Write-Host "- Target Kernel: $kernelVer"
+    Write-Host "- Target Module: [$MODULE_IDX] $MODULE_LABEL"
+    Write-Host "- Target Interface: $TEST_IFACE"
+    Write-Host "- Target Kernel: $KernelVer"
     Write-Host ""
     Write-Host "| Category | TC ID | Test Case | Status | Verification Details |"
     Write-Host "|:---|:---|:---|:---:|:---|"
     foreach ($r in $GlobalResults) {
-        $icon = if ($r.Status -eq "PASS") { "[PASS]" } else { "[FAIL]" }
-        Write-Host "| $($r.Category) | $($r.Id) | $($r.Name) | $icon | $($r.Details) |"
+        Write-Host "| $($r.Category) | $($r.Id) | $($r.Name) | [$($r.Status)] | $($r.Details) |"
     }
     Write-Host ("=" * 95) -ForegroundColor Cyan
 
     $total = $GlobalResults.Count
-    $passCount = ($GlobalResults | Where-Object { $_.Status -eq "PASS" }).Count
-    $failCount = $total - $passCount
+    $passCount = @($GlobalResults | Where-Object { $_.Status -eq "PASS" }).Count
+    $failCount = @($GlobalResults | Where-Object { $_.Status -eq "FAIL" }).Count
+    $inconCount = @($GlobalResults | Where-Object { $_.Status -eq "INCONCLUSIVE" }).Count
     $rate = if ($total -gt 0) { [math]::Round(($passCount / $total) * 100, 1) } else { 0 }
 
+    $color = if ($failCount -gt 0) { "Red" } elseif ($inconCount -gt 0) { "Yellow" } else { "Green" }
     Write-Host ""
-    Write-Host ">> Summary: Total $total | Passed: $passCount | Failed: $failCount | Pass Rate: $rate%" -ForegroundColor $(if ($failCount -eq 0) { "Green" } else { "Red" })
+    Write-Host ">> Summary: Total $total | Passed: $passCount | Failed: $failCount | Inconclusive: $inconCount | Pass Rate: $rate%" -ForegroundColor $color
+    Write-Host ">> Artifacts: $OutDir"
     Write-Host ""
+
+    return [PSCustomObject]@{ Total = $total; Passed = $passCount; Failed = $failCount; Inconclusive = $inconCount }
 }
 
 # ======================== Main Execution Flow ========================
@@ -491,173 +929,249 @@ if ([string]::IsNullOrWhiteSpace($devCheck)) {
 }
 
 Write-Host "ADB Connected: $devCheck" -ForegroundColor Green
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-if (-not (Push-CleanupHelper)) {
+if (-not (Push-BoardScript "qwt_board_cleanup.sh" $CLEANUP_SH)) {
     Write-Host "Error: Failed to push qwt_board_cleanup.sh to board ($CLEANUP_SH)!" -ForegroundColor Red
     exit 1
 }
-Cleanup-Environment
-
-$runMatrix = (-not $RfOnly) -and (-not $RfAll)
-$runRf = (-not $MatrixOnly)
-
-# ----------------- PHASE 1: AP Preset Matrix (All 29 Presets) -----------------
-if ($runMatrix -and (-not $StaOnly)) {
-    Write-Host ""
-    Write-Host "==========================================================================" -ForegroundColor Magenta
-    Write-Host ">> Phase 1: AP Quick Preset Matrix Verification (29 Presets Full Coverage)" -ForegroundColor Magenta
-    Write-Host "==========================================================================" -ForegroundColor Magenta
-
-    # --- 6 GHz (Band 3) ---
-    Write-Host "`n[6 GHz Band Presets]" -ForegroundColor Cyan
-    Test-ApPresetConfig "TC-AP-M01" "6GHz WiFi 7 320M" 3 1 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=137")
-    Test-ApPresetConfig "TC-AP-M02" "6GHz WiFi 7 160M" 3 2 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=134")
-    Test-ApPresetConfig "TC-AP-M03" "6GHz WiFi 7 80M"  3 3 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=133")
-    Test-ApPresetConfig "TC-AP-M04" "6GHz WiFi 7 40M"  3 4 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=132")
-    Test-ApPresetConfig "TC-AP-M05" "6GHz WiFi 7 20M"  3 5 @("hw_mode=a", "channel=37", "ieee80211be=1", "op_class=131")
-    Test-ApPresetConfig "TC-AP-M06" "6GHz WiFi 6 160M" 3 6 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=134")
-    Test-ApPresetConfig "TC-AP-M07" "6GHz WiFi 6 80M"  3 7 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=133")
-    Test-ApPresetConfig "TC-AP-M08" "6GHz WiFi 6 40M"  3 8 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=132")
-    Test-ApPresetConfig "TC-AP-M09" "6GHz WiFi 6 20M"  3 9 @("hw_mode=a", "channel=37", "ieee80211ax=1", "op_class=131")
-
-    # --- 5 GHz (Band 2) ---
-    Write-Host "`n[5 GHz Band Presets]" -ForegroundColor Cyan
-    Test-ApPresetConfig "TC-AP-M10" "5GHz WiFi 7 160M" 2 1  @("hw_mode=a", "channel=36", "ieee80211be=1", "vht_oper_centr_freq_seg0_idx=50")
-    Test-ApPresetConfig "TC-AP-M11" "5GHz WiFi 7 80M"  2 2  @("hw_mode=a", "channel=36", "ieee80211be=1", "vht_oper_centr_freq_seg0_idx=42")
-    Test-ApPresetConfig "TC-AP-M12" "5GHz WiFi 7 40M"  2 3  @("hw_mode=a", "channel=36", "ieee80211be=1")
-    Test-ApPresetConfig "TC-AP-M13" "5GHz WiFi 7 20M"  2 4  @("hw_mode=a", "channel=36", "ieee80211be=1")
-    Test-ApPresetConfig "TC-AP-M14" "5GHz WiFi 6 160M" 2 5  @("hw_mode=a", "channel=36", "ieee80211ax=1", "vht_oper_centr_freq_seg0_idx=50")
-    Test-ApPresetConfig "TC-AP-M15" "5GHz WiFi 6 80M"  2 6  @("hw_mode=a", "channel=36", "ieee80211ax=1", "vht_oper_centr_freq_seg0_idx=42")
-    Test-ApPresetConfig "TC-AP-M16" "5GHz WiFi 6 40M"  2 7  @("hw_mode=a", "channel=36", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M17" "5GHz WiFi 6 20M"  2 8  @("hw_mode=a", "channel=36", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M18" "5GHz WiFi 5 160M" 2 9  @("hw_mode=a", "channel=36", "ieee80211ac=1", "vht_oper_centr_freq_seg0_idx=50")
-    Test-ApPresetConfig "TC-AP-M19" "5GHz WiFi 5 80M"  2 10 @("hw_mode=a", "channel=36", "ieee80211ac=1", "vht_oper_centr_freq_seg0_idx=42")
-    Test-ApPresetConfig "TC-AP-M20" "5GHz WiFi 5 40M"  2 11 @("hw_mode=a", "channel=36", "ieee80211ac=1")
-    Test-ApPresetConfig "TC-AP-M21" "5GHz WiFi 5 20M"  2 12 @("hw_mode=a", "channel=36", "ieee80211ac=1")
-    Test-ApPresetConfig "TC-AP-M22" "5GHz WiFi 4 40M"  2 13 @("hw_mode=a", "channel=36", "ieee80211n=1")
-    Test-ApPresetConfig "TC-AP-M23" "5GHz WiFi 4 20M"  2 14 @("hw_mode=a", "channel=36", "ieee80211n=1")
-
-    # --- 2.4 GHz (Band 1) ---
-    Write-Host "`n[2.4 GHz Band Presets]" -ForegroundColor Cyan
-    Test-ApPresetConfig "TC-AP-M24" "2.4GHz WiFi 7 40M" 1 1 @("hw_mode=g", "ieee80211be=1")
-    Test-ApPresetConfig "TC-AP-M25" "2.4GHz WiFi 7 20M" 1 2 @("hw_mode=g", "ieee80211be=1")
-    Test-ApPresetConfig "TC-AP-M26" "2.4GHz WiFi 6 40M" 1 3 @("hw_mode=g", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M27" "2.4GHz WiFi 6 20M" 1 4 @("hw_mode=g", "ieee80211ax=1")
-    Test-ApPresetConfig "TC-AP-M28" "2.4GHz WiFi 4 40M" 1 5 @("hw_mode=g", "ieee80211n=1")
-    Test-ApPresetConfig "TC-AP-M29" "2.4GHz WiFi 4 20M" 1 6 @("hw_mode=g", "ieee80211n=1")
+if (-not (Push-BoardScript "qwt_canary.sh" $CANARY_SH)) {
+    Write-Host "Error: Failed to push qwt_canary.sh to board ($CANARY_SH)!" -ForegroundColor Red
+    exit 1
 }
 
-# ----------------- PHASE 2: STA Policy Matrix (11 Policies) -----------------
-if ($runMatrix -and (-not $ApOnly)) {
-    Write-Host ""
-    Write-Host "==========================================================================" -ForegroundColor Magenta
-    Write-Host ">> Phase 2: STA Band Lock, Protocol Cap & Bandwidth Cap (11 Policies)" -ForegroundColor Magenta
-    Write-Host "==========================================================================" -ForegroundColor Magenta
+Exec-Adb "killall -9 QWifiTestTool 2>/dev/null" | Out-Null
+if (-not (Resolve-ModuleIndex)) { exit 1 }
+Write-Host "Test module: [$MODULE_IDX] $MODULE_LABEL (interface $TEST_IFACE)" -ForegroundColor Green
 
-    # --- Band Lock (Option 11) ---
-    Write-Host "`n[STA Band Lock Policies]" -ForegroundColor Cyan
-    # 6GHz Lock: [11] -> [2]
-    Test-StaPolicyConfig "TC-STA-P01" "STA 6GHz Band Lock" @("11", "2") @("freq_list=5955") -ExpectedBand "6G"
-    # 5GHz Lock (No DFS): [11] -> [3] -> Has 5180, No 5260 (DFS)
-    Test-StaPolicyConfig "TC-STA-P02" "STA 5GHz Lock (Exclude DFS)" @("11", "3") @("5180") @("5260", "5280") -ExpectedBand "5G_NO_DFS"
-    # 5GHz Lock (With DFS): [11] -> [4] -> Has 5260 (DFS)
-    Test-StaPolicyConfig "TC-STA-P03" "STA 5GHz Lock (Include DFS)" @("11", "4") @("5180", "5260") -ExpectedBand "5G_DFS"
-    # 2.4GHz Lock: [11] -> [5] -> Has 2412, 2437
-    Test-StaPolicyConfig "TC-STA-P04" "STA 2.4GHz Band Lock" @("11", "5") @("2412", "2437") -ExpectedBand "2.4G"
-    # Clear Band Lock: Set [11] -> [2] then [11] -> [1]
-    Test-StaPolicyConfig "TC-STA-P05" "STA Clear Band Lock" @("11", "2", "11", "1") @() @("freq_list=") -ExpectedBand "ALL"
-
-    # --- Protocol Cap (Option 12) ---
-    Write-Host "`n[STA Protocol Cap Policies]" -ForegroundColor Cyan
-    # Cap WiFi 6: [12] -> [2] -> disable_eht=1
-    Test-StaPolicyConfig "TC-STA-P06" "STA Protocol Cap: Max WiFi 6" @("12", "2") @("disable_eht=1")
-    # Cap WiFi 5: [12] -> [3] -> disable_eht=1, disable_he=1
-    Test-StaPolicyConfig "TC-STA-P07" "STA Protocol Cap: Max WiFi 5" @("12", "3") @("disable_eht=1", "disable_he=1")
-    # Cap WiFi 4: [12] -> [4] -> disable_eht=1, disable_he=1, disable_vht=1
-    Test-StaPolicyConfig "TC-STA-P08" "STA Protocol Cap: Max WiFi 4" @("12", "4") @("disable_eht=1", "disable_he=1", "disable_vht=1")
-    # Clear Protocol Cap: Set [12] -> [4] then [12] -> [1]
-    Test-StaPolicyConfig "TC-STA-P09" "STA Clear Protocol Cap" @("12", "4", "12", "1") @() @("disable_eht=1", "disable_he=1", "disable_vht=1")
-
-    # --- Bandwidth Cap (Option 13) ---
-    Write-Host "`n[STA Bandwidth Cap Policies]" -ForegroundColor Cyan
-    $supplicantSupportsHt40 = Exec-Adb 'W=$(which wpa_supplicant 2>/dev/null || which wpa_supplicant_s1g 2>/dev/null || echo /usr/sbin/wpa_supplicant); grep -a -q disable_ht40 $W 2>/dev/null && echo 1 || echo 0'
-    $opt2Input = if ($supplicantSupportsHt40.Trim() -eq "1") { @("13", "2") } else { @("13", "2", "y") }
-    # Cap 20MHz: [13] -> [2] (-> y if unsupported prompt) -> disable_ht40=1
-    Test-StaPolicyConfig "TC-STA-P10" "STA Bandwidth Cap: Force 20MHz" $opt2Input @("disable_ht40=1")
-    # Clear Bandwidth Cap: Set [13] -> [2] (-> y) then [13] -> [1]
-    Test-StaPolicyConfig "TC-STA-P11" "STA Clear Bandwidth Cap" ($opt2Input + @("13", "1")) @() @("disable_ht40=1")
+if (-not (Backup-BoardConfigs)) {
+    Write-Host "Error: Failed to back up board configs to $BACKUP_DIR!" -ForegroundColor Red
+    exit 1
 }
 
-# ----------------- PHASE 3: Hardware RF Closed-Loop Verification -----------------
-if ($runRf -and (-not $StaOnly)) {
-    if ($RfAll) {
+$runMatrix = (-not $RfOnly) -and (-not $RfAll) -and (-not $DiagOnly)
+$runRf = (-not $MatrixOnly) -and (-not $DiagOnly)
+# Phase 4 unloads/reloads the driver and can leave the board in a degraded state, so it is opt-in only
+$runDiag = [bool]$DiagOnly
+
+# hostapd.conf expectations (exact lines), derived from the generator for this module's presets
+$G6 = @("hw_mode=a", "channel=37"); $G5 = @("hw_mode=a", "channel=36"); $G24 = @("hw_mode=g", "channel=6")
+$F6_BE = @("ieee80211be=1", "ieee80211ax=1"); $F6_AX = @("ieee80211ax=1")
+$F5_BE = @("ieee80211be=1", "ieee80211ax=1", "ieee80211ac=1", "ieee80211n=1")
+$F5_AX = @("ieee80211ax=1", "ieee80211ac=1", "ieee80211n=1")
+$F24_BE = @("ieee80211be=1", "ieee80211ax=1", "ieee80211n=1"); $F24_AX = @("ieee80211ax=1", "ieee80211n=1")
+$F_AC = @("ieee80211ac=1", "ieee80211n=1"); $F_N = @("ieee80211n=1")
+$HT40 = @("ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40]"); $HT20 = @("ht_capab=[HT20][SHORT-GI-20]")
+
+try {
+    Cleanup-Environment
+    Start-Canaries
+
+    # ----------------- PHASE 1: AP Preset Matrix (All 29 Presets) -----------------
+    if ($runMatrix -and (-not $StaOnly)) {
         Write-Host ""
         Write-Host "==========================================================================" -ForegroundColor Magenta
-        Write-Host ">> Phase 3 (Full 29 RF): All 29 AP Presets Live RF Verification (-RfAll)" -ForegroundColor Magenta
+        Write-Host ">> Phase 1: AP Quick Preset Matrix Verification (29 Presets Full Coverage)" -ForegroundColor Magenta
         Write-Host "==========================================================================" -ForegroundColor Magenta
 
-        # --- 6 GHz (Band 3: 9 presets) ---
-        Write-Host "`n[6 GHz Live RF Broadcasts]" -ForegroundColor Cyan
-        Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-02" -Name "6GHz WiFi 7 160M RF TX" -BandKey 3 -PresetKey 2 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-03" -Name "6GHz WiFi 7 80M RF TX"  -BandKey 3 -PresetKey 3 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-04" -Name "6GHz WiFi 7 40M RF TX"  -BandKey 3 -PresetKey 4 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-05" -Name "6GHz WiFi 7 20M RF TX"  -BandKey 3 -PresetKey 5 -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-07" -Name "6GHz WiFi 6 80M RF TX"  -BandKey 3 -PresetKey 7 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-08" -Name "6GHz WiFi 6 40M RF TX"  -BandKey 3 -PresetKey 8 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-09" -Name "6GHz WiFi 6 20M RF TX"  -BandKey 3 -PresetKey 9 -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
+        # --- 6 GHz (Band 3) ---
+        Write-Host "`n[6 GHz Band Presets]" -ForegroundColor Cyan
+        Test-ApPresetConfig "TC-AP-M01" "6GHz WiFi 7 320M" 3 1 ($G6 + $F6_BE + @("eht_oper_chwidth=3", "he_oper_chwidth=2", "he_oper_centr_freq_seg0_idx=47", "eht_oper_centr_freq_seg0_idx=31", "op_class=137"))
+        Test-ApPresetConfig "TC-AP-M02" "6GHz WiFi 7 160M" 3 2 ($G6 + $F6_BE + @("eht_oper_chwidth=2", "he_oper_chwidth=2", "he_oper_centr_freq_seg0_idx=47", "eht_oper_centr_freq_seg0_idx=47", "op_class=134"))
+        Test-ApPresetConfig "TC-AP-M03" "6GHz WiFi 7 80M"  3 3 ($G6 + $F6_BE + @("eht_oper_chwidth=1", "he_oper_chwidth=1", "he_oper_centr_freq_seg0_idx=39", "eht_oper_centr_freq_seg0_idx=39", "op_class=133"))
+        Test-ApPresetConfig "TC-AP-M04" "6GHz WiFi 7 40M"  3 4 ($G6 + $F6_BE + @("eht_oper_chwidth=0", "he_oper_chwidth=0", "he_oper_centr_freq_seg0_idx=35", "eht_oper_centr_freq_seg0_idx=35", "op_class=132"))
+        Test-ApPresetConfig "TC-AP-M05" "6GHz WiFi 7 20M"  3 5 ($G6 + $F6_BE + @("op_class=131"))
+        Test-ApPresetConfig "TC-AP-M06" "6GHz WiFi 6 160M" 3 6 ($G6 + $F6_AX + @("he_oper_chwidth=2", "he_oper_centr_freq_seg0_idx=47", "op_class=134"))
+        Test-ApPresetConfig "TC-AP-M07" "6GHz WiFi 6 80M"  3 7 ($G6 + $F6_AX + @("he_oper_chwidth=1", "he_oper_centr_freq_seg0_idx=39", "op_class=133"))
+        Test-ApPresetConfig "TC-AP-M08" "6GHz WiFi 6 40M"  3 8 ($G6 + $F6_AX + @("he_oper_chwidth=0", "he_oper_centr_freq_seg0_idx=35", "op_class=132"))
+        Test-ApPresetConfig "TC-AP-M09" "6GHz WiFi 6 20M"  3 9 ($G6 + $F6_AX + @("op_class=131"))
 
-        # --- 5 GHz (Band 2: 14 presets) ---
-        Write-Host "`n[5 GHz Live RF Broadcasts]" -ForegroundColor Cyan
-        Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-11" -Name "5GHz WiFi 7 80M RF TX"  -BandKey 2 -PresetKey 2  -ExpectedTuiMode "80MHz"   -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-12" -Name "5GHz WiFi 7 40M RF TX"  -BandKey 2 -PresetKey 3  -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-13" -Name "5GHz WiFi 7 20M RF TX"  -BandKey 2 -PresetKey 4  -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-14" -Name "5GHz WiFi 6 160M RF TX" -BandKey 2 -PresetKey 5  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-15" -Name "5GHz WiFi 6 80M RF TX"  -BandKey 2 -PresetKey 6  -ExpectedTuiMode "80MHz"   -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-16" -Name "5GHz WiFi 6 40M RF TX"  -BandKey 2 -PresetKey 7  -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-17" -Name "5GHz WiFi 6 20M RF TX"  -BandKey 2 -PresetKey 8  -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-18" -Name "5GHz WiFi 5 160M RF TX" -BandKey 2 -PresetKey 9  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-19" -Name "5GHz WiFi 5 80M RF TX"  -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-20" -Name "5GHz WiFi 5 40M RF TX"  -BandKey 2 -PresetKey 11 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-21" -Name "5GHz WiFi 5 20M RF TX"  -BandKey 2 -PresetKey 12 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-22" -Name "5GHz WiFi 4 40M RF TX"  -BandKey 2 -PresetKey 13 -ExpectedTuiMode "WiFi 4"   -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-23" -Name "5GHz WiFi 4 20M RF TX"  -BandKey 2 -PresetKey 14 -ExpectedTuiMode "WiFi 4"   -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+        # --- 5 GHz (Band 2) ---
+        Write-Host "`n[5 GHz Band Presets]" -ForegroundColor Cyan
+        Test-ApPresetConfig "TC-AP-M10" "5GHz WiFi 7 160M" 2 1  ($G5 + $F5_BE + $HT40 + @("vht_oper_chwidth=2", "he_oper_chwidth=2", "eht_oper_chwidth=2", "vht_oper_centr_freq_seg0_idx=50", "he_oper_centr_freq_seg0_idx=50", "eht_oper_centr_freq_seg0_idx=50"))
+        Test-ApPresetConfig "TC-AP-M11" "5GHz WiFi 7 80M"  2 2  ($G5 + $F5_BE + $HT40 + @("vht_oper_chwidth=1", "he_oper_chwidth=1", "eht_oper_chwidth=1", "vht_oper_centr_freq_seg0_idx=42", "he_oper_centr_freq_seg0_idx=42", "eht_oper_centr_freq_seg0_idx=42"))
+        Test-ApPresetConfig "TC-AP-M12" "5GHz WiFi 7 40M"  2 3  ($G5 + $F5_BE + $HT40)
+        Test-ApPresetConfig "TC-AP-M13" "5GHz WiFi 7 20M"  2 4  ($G5 + $F5_BE + $HT20)
+        Test-ApPresetConfig "TC-AP-M14" "5GHz WiFi 6 160M" 2 5  ($G5 + $F5_AX + $HT40 + @("vht_oper_chwidth=2", "he_oper_chwidth=2", "vht_oper_centr_freq_seg0_idx=50", "he_oper_centr_freq_seg0_idx=50"))
+        Test-ApPresetConfig "TC-AP-M15" "5GHz WiFi 6 80M"  2 6  ($G5 + $F5_AX + $HT40 + @("vht_oper_chwidth=1", "he_oper_chwidth=1", "vht_oper_centr_freq_seg0_idx=42", "he_oper_centr_freq_seg0_idx=42"))
+        Test-ApPresetConfig "TC-AP-M16" "5GHz WiFi 6 40M"  2 7  ($G5 + $F5_AX + $HT40)
+        Test-ApPresetConfig "TC-AP-M17" "5GHz WiFi 6 20M"  2 8  ($G5 + $F5_AX + $HT20)
+        Test-ApPresetConfig "TC-AP-M18" "5GHz WiFi 5 160M" 2 9  ($G5 + $F_AC + $HT40 + @("vht_oper_chwidth=2", "vht_oper_centr_freq_seg0_idx=50"))
+        Test-ApPresetConfig "TC-AP-M19" "5GHz WiFi 5 80M"  2 10 ($G5 + $F_AC + $HT40 + @("vht_oper_chwidth=1", "vht_oper_centr_freq_seg0_idx=42"))
+        Test-ApPresetConfig "TC-AP-M20" "5GHz WiFi 5 40M"  2 11 ($G5 + $F_AC + $HT40)
+        Test-ApPresetConfig "TC-AP-M21" "5GHz WiFi 5 20M"  2 12 ($G5 + $F_AC + $HT20)
+        Test-ApPresetConfig "TC-AP-M22" "5GHz WiFi 4 40M"  2 13 ($G5 + $F_N + $HT40)
+        Test-ApPresetConfig "TC-AP-M23" "5GHz WiFi 4 20M"  2 14 ($G5 + $F_N + $HT20)
 
-        # --- 2.4 GHz (Band 1: 6 presets) ---
-        Write-Host "`n[2.4 GHz Live RF Broadcasts]" -ForegroundColor Cyan
-        Run-ApRfTestCase -TcId "TC-RF-24" -Name "2.4GHz WiFi 7 40M RF TX" -BandKey 1 -PresetKey 1 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-25" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-26" -Name "2.4GHz WiFi 6 40M RF TX" -BandKey 1 -PresetKey 3 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-27" -Name "2.4GHz WiFi 6 20M RF TX" -BandKey 1 -PresetKey 4 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-28" -Name "2.4GHz WiFi 4 40M RF TX" -BandKey 1 -PresetKey 5 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
-        Run-ApRfTestCase -TcId "TC-RF-29" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
-    } else {
+        # --- 2.4 GHz (Band 1) ---
+        Write-Host "`n[2.4 GHz Band Presets]" -ForegroundColor Cyan
+        Test-ApPresetConfig "TC-AP-M24" "2.4GHz WiFi 7 40M" 1 1 ($G24 + $F24_BE + $HT40)
+        Test-ApPresetConfig "TC-AP-M25" "2.4GHz WiFi 7 20M" 1 2 ($G24 + $F24_BE + $HT20)
+        Test-ApPresetConfig "TC-AP-M26" "2.4GHz WiFi 6 40M" 1 3 ($G24 + $F24_AX + $HT40)
+        Test-ApPresetConfig "TC-AP-M27" "2.4GHz WiFi 6 20M" 1 4 ($G24 + $F24_AX + $HT20)
+        Test-ApPresetConfig "TC-AP-M28" "2.4GHz WiFi 4 40M" 1 5 ($G24 + $F_N + $HT40)
+        Test-ApPresetConfig "TC-AP-M29" "2.4GHz WiFi 4 20M" 1 6 ($G24 + $F_N + $HT20)
+
+        # --- English UI ---
+        Write-Host "`n[English UI]" -ForegroundColor Cyan
+        Test-ApPresetConfig "TC-AP-EN01" "5GHz WiFi 6 80M (English UI)" 2 6 ($G5 + $F5_AX + $HT40 + @("vht_oper_chwidth=1", "he_oper_chwidth=1", "vht_oper_centr_freq_seg0_idx=42", "he_oper_centr_freq_seg0_idx=42")) -Lang "en"
+        Update-CanaryStatus "Phase 1"
+    }
+
+    # ----------------- PHASE 2: STA Policy Matrix (11 Policies) -----------------
+    if ($runMatrix -and (-not $ApOnly)) {
         Write-Host ""
         Write-Host "==========================================================================" -ForegroundColor Magenta
-        Write-Host ">> Phase 3: Hardware RF Closed-Loop Physical Verification (Core 6 Broadcasts)" -ForegroundColor Magenta
+        Write-Host ">> Phase 2: STA Band Lock, Protocol Cap & Bandwidth Cap (11 Policies)" -ForegroundColor Magenta
         Write-Host "==========================================================================" -ForegroundColor Magenta
 
-        # TC-RF-01: 6GHz WiFi 7 320M TX (Core)
-        Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
+        # --- Band Lock (Option 11) ---
+        Write-Host "`n[STA Band Lock Policies]" -ForegroundColor Cyan
+        # 6GHz Lock: [11] -> [2]
+        Test-StaPolicyConfig "TC-STA-P01" "STA 6GHz Band Lock" @("11", "2") @("freq_list=5955") -ExpectedBand "6G"
+        # 5GHz Lock (No DFS): [11] -> [3] -> Has 5180, No 5260 (DFS)
+        Test-StaPolicyConfig "TC-STA-P02" "STA 5GHz Lock (Exclude DFS)" @("11", "3") @("5180") @("5260", "5280") -ExpectedBand "5G_NO_DFS"
+        # 5GHz Lock (With DFS): [11] -> [4] -> Has 5260 (DFS)
+        Test-StaPolicyConfig "TC-STA-P03" "STA 5GHz Lock (Include DFS)" @("11", "4") @("5180", "5260") -ExpectedBand "5G_DFS"
+        # 2.4GHz Lock: [11] -> [5] -> Has 2412, 2437
+        Test-StaPolicyConfig "TC-STA-P04" "STA 2.4GHz Band Lock" @("11", "5") @("2412", "2437") -ExpectedBand "2.4G"
+        # Clear Band Lock: Set [11] -> [2] then [11] -> [1]
+        Test-StaPolicyConfig "TC-STA-P05" "STA Clear Band Lock" @("11", "2", "11", "1") @() @("freq_list=") -ExpectedBand "ALL"
 
-        # TC-RF-06: 6GHz WiFi 6 160M TX (Core)
-        Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+        # --- Protocol Cap (Option 12) ---
+        Write-Host "`n[STA Protocol Cap Policies]" -ForegroundColor Cyan
+        # Cap WiFi 6: [12] -> [2] -> disable_eht=1
+        Test-StaPolicyConfig "TC-STA-P06" "STA Protocol Cap: Max WiFi 6" @("12", "2") @("disable_eht=1")
+        # Cap WiFi 5: [12] -> [3] -> disable_eht=1, disable_he=1
+        Test-StaPolicyConfig "TC-STA-P07" "STA Protocol Cap: Max WiFi 5" @("12", "3") @("disable_eht=1", "disable_he=1")
+        # Cap WiFi 4: [12] -> [4] -> disable_eht=1, disable_he=1, disable_vht=1
+        Test-StaPolicyConfig "TC-STA-P08" "STA Protocol Cap: Max WiFi 4" @("12", "4") @("disable_eht=1", "disable_he=1", "disable_vht=1")
+        # Clear Protocol Cap: Set [12] -> [4] then [12] -> [1]
+        Test-StaPolicyConfig "TC-STA-P09" "STA Clear Protocol Cap" @("12", "4", "12", "1") @() @("disable_eht=1", "disable_he=1", "disable_vht=1")
 
-        # TC-RF-10: 5GHz WiFi 7 160M TX (Core)
-        Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+        # --- Bandwidth Cap (Option 13) ---
+        Write-Host "`n[STA Bandwidth Cap Policies]" -ForegroundColor Cyan
+        $supplicantSupportsHt40 = Exec-Adb 'W=$(which wpa_supplicant 2>/dev/null || which wpa_supplicant_s1g 2>/dev/null || echo /usr/sbin/wpa_supplicant); grep -a -q disable_ht40 $W 2>/dev/null && echo 1 || echo 0'
+        $opt2Input = if ($supplicantSupportsHt40.Trim() -eq "1") { @("13", "2") } else { @("13", "2", "y") }
+        # Cap 20MHz: [13] -> [2] (-> y if unsupported prompt) -> disable_ht40=1
+        Test-StaPolicyConfig "TC-STA-P10" "STA Bandwidth Cap: Force 20MHz" $opt2Input @("disable_ht40=1")
+        # Clear Bandwidth Cap: Set [13] -> [2] (-> y) then [13] -> [1]
+        Test-StaPolicyConfig "TC-STA-P11" "STA Clear Bandwidth Cap" ($opt2Input + @("13", "1")) @() @("disable_ht40=1")
 
-        # TC-RF-19: 5GHz WiFi 5 80M TX (Core)
-        Run-ApRfTestCase -TcId "TC-RF-19" -Name "5GHz WiFi 5 80M RF TX" -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+        # --- English UI (config only, no RF scan) ---
+        Write-Host "`n[English UI]" -ForegroundColor Cyan
+        Test-StaPolicyConfig "TC-STA-EN01" "STA 2.4GHz Band Lock (English UI)" @("11", "5") @("2412", "2437") -Lang "en"
+        Update-CanaryStatus "Phase 2"
+    }
 
-        # TC-RF-25: 2.4GHz WiFi 7 20M TX (Core)
-        Run-ApRfTestCase -TcId "TC-RF-25" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+    # ----------------- PHASE 3: Hardware RF Closed-Loop Verification -----------------
+    if ($runRf -and (-not $StaOnly)) {
+        if ($RfAll) {
+            Write-Host ""
+            Write-Host "==========================================================================" -ForegroundColor Magenta
+            Write-Host ">> Phase 3 (Full 29 RF): All 29 AP Presets Live RF Verification (-RfAll)" -ForegroundColor Magenta
+            Write-Host "==========================================================================" -ForegroundColor Magenta
 
-        # TC-RF-29: 2.4GHz WiFi 4 20M TX (Core)
-        Run-ApRfTestCase -TcId "TC-RF-29" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+            # --- 6 GHz (Band 3: 9 presets) ---
+            Write-Host "`n[6 GHz Live RF Broadcasts]" -ForegroundColor Cyan
+            Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-02" -Name "6GHz WiFi 7 160M RF TX" -BandKey 3 -PresetKey 2 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-03" -Name "6GHz WiFi 7 80M RF TX"  -BandKey 3 -PresetKey 3 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-04" -Name "6GHz WiFi 7 40M RF TX"  -BandKey 3 -PresetKey 4 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-05" -Name "6GHz WiFi 7 20M RF TX"  -BandKey 3 -PresetKey 5 -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-07" -Name "6GHz WiFi 6 80M RF TX"  -BandKey 3 -PresetKey 7 -ExpectedTuiMode "80MHz"  -ExpectedTuiCh "Center: 39" -ExpectedRfWidth "80 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-08" -Name "6GHz WiFi 6 40M RF TX"  -BandKey 3 -PresetKey 8 -ExpectedTuiMode "40MHz"  -ExpectedTuiCh "Center: 35" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-09" -Name "6GHz WiFi 6 20M RF TX"  -BandKey 3 -PresetKey 9 -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 37" -ExpectedRfWidth "20 MHz"
+
+            # --- 5 GHz (Band 2: 14 presets) ---
+            Write-Host "`n[5 GHz Live RF Broadcasts]" -ForegroundColor Cyan
+            Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-11" -Name "5GHz WiFi 7 80M RF TX"  -BandKey 2 -PresetKey 2  -ExpectedTuiMode "80MHz"   -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-12" -Name "5GHz WiFi 7 40M RF TX"  -BandKey 2 -PresetKey 3  -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-13" -Name "5GHz WiFi 7 20M RF TX"  -BandKey 2 -PresetKey 4  -ExpectedTuiMode "WiFi 7"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-14" -Name "5GHz WiFi 6 160M RF TX" -BandKey 2 -PresetKey 5  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-15" -Name "5GHz WiFi 6 80M RF TX"  -BandKey 2 -PresetKey 6  -ExpectedTuiMode "80MHz"   -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-16" -Name "5GHz WiFi 6 40M RF TX"  -BandKey 2 -PresetKey 7  -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-17" -Name "5GHz WiFi 6 20M RF TX"  -BandKey 2 -PresetKey 8  -ExpectedTuiMode "WiFi 6"  -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-18" -Name "5GHz WiFi 5 160M RF TX" -BandKey 2 -PresetKey 9  -ExpectedTuiMode "160MHz"  -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-19" -Name "5GHz WiFi 5 80M RF TX"  -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-20" -Name "5GHz WiFi 5 40M RF TX"  -BandKey 2 -PresetKey 11 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-21" -Name "5GHz WiFi 5 20M RF TX"  -BandKey 2 -PresetKey 12 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-22" -Name "5GHz WiFi 4 40M RF TX"  -BandKey 2 -PresetKey 13 -ExpectedTuiMode "WiFi 4"   -ExpectedTuiCh "channel 36" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-23" -Name "5GHz WiFi 4 20M RF TX"  -BandKey 2 -PresetKey 14 -ExpectedTuiMode "WiFi 4"   -ExpectedTuiCh "channel 36" -ExpectedRfWidth "20 MHz"
+
+            # --- 2.4 GHz (Band 1: 6 presets) ---
+            Write-Host "`n[2.4 GHz Live RF Broadcasts]" -ForegroundColor Cyan
+            Run-ApRfTestCase -TcId "TC-RF-24" -Name "2.4GHz WiFi 7 40M RF TX" -BandKey 1 -PresetKey 1 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-25" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-26" -Name "2.4GHz WiFi 6 40M RF TX" -BandKey 1 -PresetKey 3 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-27" -Name "2.4GHz WiFi 6 20M RF TX" -BandKey 1 -PresetKey 4 -ExpectedTuiMode "WiFi 6" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-28" -Name "2.4GHz WiFi 4 40M RF TX" -BandKey 1 -PresetKey 5 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "40 MHz"
+            Run-ApRfTestCase -TcId "TC-RF-29" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        } else {
+            Write-Host ""
+            Write-Host "==========================================================================" -ForegroundColor Magenta
+            Write-Host ">> Phase 3: Hardware RF Closed-Loop Physical Verification (Core 6 Broadcasts)" -ForegroundColor Magenta
+            Write-Host "==========================================================================" -ForegroundColor Magenta
+
+            # TC-RF-01: 6GHz WiFi 7 320M TX (Core)
+            Run-ApRfTestCase -TcId "TC-RF-01" -Name "6GHz WiFi 7 320M RF TX" -BandKey 3 -PresetKey 1 -ExpectedTuiMode "320MHz" -ExpectedTuiCh "Center: 31" -ExpectedRfWidth "320 MHz"
+
+            # TC-RF-06: 6GHz WiFi 6 160M TX (Core)
+            Run-ApRfTestCase -TcId "TC-RF-06" -Name "6GHz WiFi 6 160M RF TX" -BandKey 3 -PresetKey 6 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 47" -ExpectedRfWidth "160 MHz"
+
+            # TC-RF-10: 5GHz WiFi 7 160M TX (Core)
+            Run-ApRfTestCase -TcId "TC-RF-10" -Name "5GHz WiFi 7 160M RF TX" -BandKey 2 -PresetKey 1 -ExpectedTuiMode "160MHz" -ExpectedTuiCh "Center: 50" -ExpectedRfWidth "160 MHz"
+
+            # TC-RF-19: 5GHz WiFi 5 80M TX (Core)
+            Run-ApRfTestCase -TcId "TC-RF-19" -Name "5GHz WiFi 5 80M RF TX" -BandKey 2 -PresetKey 10 -ExpectedTuiMode "802.11ac" -ExpectedTuiCh "Center: 42" -ExpectedRfWidth "80 MHz"
+
+            # TC-RF-25: 2.4GHz WiFi 7 20M TX (Core)
+            Run-ApRfTestCase -TcId "TC-RF-25" -Name "2.4GHz WiFi 7 20M RF TX" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+
+            # TC-RF-29: 2.4GHz WiFi 4 20M TX (Core)
+            Run-ApRfTestCase -TcId "TC-RF-29" -Name "2.4GHz WiFi 4 20M RF TX" -BandKey 1 -PresetKey 6 -ExpectedTuiMode "WiFi 4" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz"
+        }
+
+        # English UI through the whole AP start path (TUI wording differs, so only RF state + no Chinese)
+        Run-ApRfTestCase -TcId "TC-RF-EN01" -Name "2.4GHz WiFi 7 20M RF TX (English UI)" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "" -ExpectedTuiCh "" -ExpectedRfWidth "20 MHz" -Lang "en"
+        Update-CanaryStatus "Phase 3"
+    }
+
+    # ----------------- PHASE 4: Diagnosis & Driver Lifecycle -----------------
+    if ($runDiag) {
+        Write-Host ""
+        Write-Host "==========================================================================" -ForegroundColor Magenta
+        Write-Host ">> Phase 4: Diagnosis Menu & Driver Unload / Load / Reload" -ForegroundColor Magenta
+        Write-Host "==========================================================================" -ForegroundColor Magenta
+        Invoke-DiagnosisPhase
+        Update-CanaryStatus "Phase 4"
+    }
+
+    Add-CanaryResult
+} finally {
+    # Runs on normal completion and on Ctrl+C, so the board always gets its original configs back
+    Exec-Adb "killall -9 QWifiTestTool 2>/dev/null" | Out-Null
+    Exec-Adb "sh $CANARY_SH stop" | Out-Null
+    Cleanup-Environment
+    Restore-BoardConfigs
+    if ($runDiag -and $DRIVER_MOD -and -not (Get-DriverState).Loaded) {
+        Write-Host "[WARN] Driver '$DRIVER_MOD' is not loaded after Phase 4. Load it from the tool: [1] Diagnosis -> answer y." -ForegroundColor Yellow
     }
 }
 
-Cleanup-Environment
-Show-SummaryReport
+$summary = Show-SummaryReport (Exec-Adb "uname -r")
+
+$report = [PSCustomObject]@{
+    Time = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    Module = "[$MODULE_IDX] $MODULE_LABEL"
+    Interface = $TEST_IFACE
+    Summary = $summary
+    Results = $GlobalResults
+}
+$report | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8 (Join-Path $OutDir "results.json")
+
+# Exit code: 0 = no FAIL (INCONCLUSIVE allowed), 1 = at least one FAIL or a setup error
+if ($summary.Failed -gt 0) { exit 1 }
+exit 0

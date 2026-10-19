@@ -29,6 +29,8 @@
 ✅ **Android 平台修正 (V1.16，尚未實機驗證)**: 內嵌佔位執行檔 ELF 校驗與系統 fallback、無 `iw` 時以 hostapd 狀態判定 AP 就緒、啟動 daemon 前接管 / 結束時還原 Android WiFi framework  
 ✅ **企業版 802.1X AP 明確標示 (V1.17)**: 掃描清單將純 EAP 網路標為 `WPA2-Enterprise (802.1X)`（原誤標為 Personal），選取時於輸入密碼前即提示不支援；同時支援 EAP 與 PSK 的 AP 仍可用密碼連線  
 ✅ **英文介面完整翻譯 (V1.17)**: 平台資訊、AP 配置引導、DFS 等待、Morse HaLow 驅動重載等訊息全數納入 i18n，英文模式不再混出中文  
+✅ **E2E 測試框架強化 (V1.18)**: 依提示節奏送出輸入並驗證工具正常退出、hostapd.conf 逐行精確比對、`INCONCLUSIVE` 狀態與失敗 exit code、失敗自動留存 TUI 畫面 / 設定檔 / dmesg、板端 `/etc` 設定檔自動備份還原、依名稱選模組  
+✅ **E2E 覆蓋擴充 (V1.18)**: 網卡隔離 canary (其他網卡的 daemon 不得被清理誤殺)、英文介面全流程 (AP / STA / RF，畫面不得出現中文)、`-DiagOnly` 診斷與驅動卸載 / 重載測試  
 
 ## 目錄結構
 
@@ -48,9 +50,9 @@ QWifiTestTool/
 │   ├── wifi/                # WiFi 操作邏輯 (Hotspot/Connection)
 │   └── ui/                  # 終端使用者介面
 ├── docs/                    # 專案設計與架構文檔
-├── scripts/                 # E2E 測試套件 (e2e_wifi_test.ps1) 與板端清理腳本 (qwt_board_cleanup.sh)
+├── scripts/                 # E2E 測試套件 (e2e_wifi_test.ps1)、板端清理腳本 (qwt_board_cleanup.sh) 與網卡隔離 canary (qwt_canary.sh)
 ├── .claude/skills/          # Claude Code 工作流 (/deploy /push /sync /verify-hardware)
-└── .agent/workflows/        # 其他 AI IDE 工作流 (deploy/push/sync/verify_hardware，內容需與 .claude/skills 同步)
+└── .agent/workflows/        # 其他 AI IDE 工作流原檔 (保留不更新，現行流程以 .claude/skills 為準)
 ```
 
 ## 快速開始
@@ -158,6 +160,6 @@ su
 
 ---
 
-**版本**: V1.17  
-**維護**: WiFi 驅動團隊 (Updated: 2026-10-16)
+**版本**: V1.18  
+**維護**: WiFi 驅動團隊 (Updated: 2026-10-19)
 

@@ -343,6 +343,33 @@
 * 實機 E2E (`scripts/e2e_wifi_test.ps1` 完整模式) **46/46 PASS**：Phase 1 AP 矩陣 29/29、Phase 2 STA 策略 11/11、Phase 3 RF 實體廣播 6/6。
 * 未涵蓋：企業版 AP 實連 (現場無 802.1X AP)、英文介面字串顯示 (E2E 不比對文字)、Morse 模組訊息、Android 平台；6GHz STA 鎖頻掃描 0 BSS (附近無 6G AP，邊界無法判定)。
 
+## 14. 最新更新 (2026-10-19) — V1.18 (E2E 測試框架強化與覆蓋擴充，含驅動重載已知問題)
+
+本版僅修改測試腳本與文檔，工具程式行為不變 (版本號依 `/sync` 規則因 `scripts/` 修改而遞增)。
+
+### 14.1 測試可信度 (`scripts/e2e_wifi_test.ps1`)
+* **依提示節奏送出輸入**：背景執行緒持續讀取 TUI 輸出，等輸出靜止 300ms 才送下一筆；每個 session 必須以「再見!」正常退出，出現「無效」即判為輸入與選單脫節。改版後立即抓到舊腳本 Phase 1 每次多送一個 `0` (存檔後已直接回主選單)。
+* **AP 矩陣逐行精確比對**：hostapd.conf 以 `key=value` 比對完整值，並要求未列入預期的模式 / 頻寬相關 key 不存在；預期值由 generator 對 FME170Q 29 組 preset 的實際輸出導出。20M / 40M 互換、WiFi 世代誤標都會判 FAIL (舊版只比對子字串，20M 與 40M 的檢查內容完全相同)。
+* **結果狀態**：新增 `INCONCLUSIVE` (設定正確但 RF 掃描 0 BSS)，不再計入 PASS；有 FAIL 時 exit code 為 1，並輸出 `results.json`。
+* **失敗證據**：FAIL 自動存下完整 TUI 畫面、當下設定檔、dmesg / `iw` 狀態。
+* **板端保護與參數化**：`/etc/wpa_supplicant.conf`、`hostapd.conf`、`dnsmasq.conf` 開跑前備份、結束時 (含 Ctrl+C) 還原；模組依名稱查找 (`-ModuleName`)；網卡改為 `-Iface` 參數；AP 失敗判斷改比對實際存在的錯誤字串。
+* **stdin BOM**：.NET 於 `Process.Start` 以 `Console.InputEncoding` (UTF-8 帶 BOM) 建立子行程 stdin，第一筆輸入變成 `﻿y`，語言選擇因此被忽略；腳本改設為不帶 BOM 的 UTF-8。
+
+### 14.2 覆蓋擴充
+* **網卡隔離 (TC-SYS-01，`scripts/qwt_canary.sh`)**：在 `eth9` 上啟動 udhcpc / dnsmasq / wpa_supplicant / hostapd 假 daemon，先以清理腳本 dry-run 做正向對照，之後每個 Phase 結束確認存活，涵蓋工具本身與測試清理兩條路徑。
+* **英文介面 (TC-AP-EN01 / TC-STA-EN01 / TC-RF-EN01)**：語言選英文後跑完整流程，語言提示之後的畫面不得出現中日韓文字。
+* **診斷與驅動生命週期 (`-DiagOnly`，opt-in)**：診斷全通過、卸載後由診斷提示載入、直接重新載入、重載後實際起 AP。
+
+### 14.3 已知問題 (尚未修正)
+* **重新載入驅動後 AP 無法啟動 (FME170Q-865)**：工具為避免 kernel hang 只重載 `wlan.ko` (保留 `wlan_cnss_core_pcie` / `pcie-dw-rockchip`)。重載後 hostapd 可達 `AP-ENABLED`，但 `iw` 回報 txpower 持續 `0.00 dBm`，PCIe 模組的就緒判斷逾時而判定失敗 (TC-DIAG-04 穩定 FAIL)。之後模組卡在異常狀態，暖開機後 PCIe 仍 `Link Fail`，需完全斷電才能恢復；因此 Phase 4 不納入預設完整測試。
+* 診斷畫面「核心日誌 (最近 5 條)」實際列出 8 條。
+
+### 14.4 驗證成果 (Qualcomm FME170Q-865，Linux 5.10.160)
+* 本機 `go vet ./...`、`go test ./...` 全數通過。
+* 實機 E2E (V1.18 完整模式，exit code 0)：**49 PASS / 0 FAIL / 1 INCONCLUSIVE (共 50)**。Phase 1 AP 矩陣 30/30 (含英文 1)、Phase 2 STA 策略 11/12 PASS + 1 INCONCLUSIVE (TC-STA-P01 6GHz 鎖頻掃描 0 BSS，附近無 6G AP)、Phase 3 RF 實體廣播 7/7 (含英文 1)、網卡隔離 TC-SYS-01 PASS (eth9 四個 canary 撐過 Phase 1～3)。
+* `-DiagOnly` (另行執行，V1.17 執行檔)：TC-DIAG-01～03 PASS，TC-DIAG-04 FAIL (見 14.3 已知問題)。
+* 未涵蓋：Station 實際連線與中文 SSID (需參考 AP)、企業版 AP 實連、Android 平台。
+
 
 
 

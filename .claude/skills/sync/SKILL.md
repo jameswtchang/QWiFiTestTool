@@ -15,8 +15,8 @@ argument-hint: "[--quick | --skip-hw]"
 
 | 參數 | 實機驗證範圍 |
 |:---|:---|
-| *(無)* | 完整分層 E2E：AP 矩陣 29 + STA 策略 11 + 核心 RF 6（約 10 分鐘） |
-| `--quick` | 僅靜態矩陣 `-MatrixOnly`（約 1 分鐘，不發射射頻） |
+| *(無)* | 完整分層 E2E：AP 矩陣 30 + STA 策略 12 + 核心 RF 7 + 網卡隔離 1（約 12 分鐘） |
+| `--quick` | 僅靜態矩陣 `-MatrixOnly`（約 4 分鐘，不發射射頻） |
 | `--skip-hw` | 略過實機驗證；commit message 必須註明「未實機驗證」 |
 
 ---
@@ -75,7 +75,7 @@ $head = ((git show HEAD:cmd/main.go) | Select-String -Pattern 'const Version = "
 | `assets/default_modules.xml` 模組增刪或晶片 / 驅動變更 | `README.md`「支援模組」表、`internal/sys/README.md`、`assets/android_arm64/README.md` 的對照表，模組數量必須與 XML 的 `<Module>` 數一致 |
 | 特定模組行為（FGH200M、FCS945R 等） | `docs/FGH200M_SUMMARY.md`、`docs/FCS945R_SUMMARY.md` 等對應文檔 |
 | `scripts/` | `docs/e2e_wifi_test_guide.md`、`scripts/README.md`（參數表、前置條件、新版本段落） |
-| `.claude/skills/` 或 `.agent/workflows/` | 另一側保持一致；工作流規則改變時同步 `AGENTS.md` 與 `README.md` 目錄結構 |
+| `.claude/skills/` | 工作流規則改變時同步 `AGENTS.md` 與 `README.md` 目錄結構；`.agent/workflows/` 原檔保留，不跟著更新 |
 | 架構調整 | `docs/presentation_outline.md` |
 
 ### 3.2 一致性檢查
@@ -129,9 +129,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1 
 ```
 
 - 完整測試約 10 分鐘，以背景方式執行，完成後讀取 log 中的報告表與 `Summary`。
-- **任何 FAIL 即停止，不得提交**：依 `.claude/skills/verify-hardware/SKILL.md` 步驟 4 收集 dmesg 與 hostapd 日誌並回報。
-- 記下實際結果（各 Phase 的 PASS 數），回填步驟 3 的「驗證成果」並用於 commit message。
-- 結束後刪除本機 log 與板端測試殘留。
+- **Exit code 非 0 或任何 FAIL 即停止，不得提交**：依 `.claude/skills/verify-hardware/SKILL.md` 步驟 4 讀取 `Artifacts:` 目錄中的失敗證據並回報。
+- `INCONCLUSIVE` 不阻擋提交，但必須在「驗證成果」與 commit message 中如實寫出，不得算進 PASS。
+- 記下實際結果（各 Phase 的 PASS / INCONCLUSIVE 數），回填步驟 3 的「驗證成果」並用於 commit message。
+- 結束後刪除本機 log 與 `Artifacts:` 目錄。板端設定檔由腳本自動還原。
 
 注意：從 PowerShell 傳給 `adb shell` 的參數若含雙引號、`|`、`(`，PowerShell 5.1 可能拿掉引號，導致板端 shell 誤執行。複雜的板端指令請先寫成腳本檔，`adb push` 後再用 `adb shell sh <檔案>` 執行。
 
