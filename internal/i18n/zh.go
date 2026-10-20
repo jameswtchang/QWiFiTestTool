@@ -373,6 +373,7 @@ var zhMessages = map[string]string{
 	"conn.invalid_scan":       "[WARN] 無效選擇，進入掃描模式...",
 	"conn.config_path_fail":   "獲取配置文件路徑失敗: %w",
 	"conn.config_save_fail":   "保存配置文件失敗: %w",
+	"conn.keep_saved_network": "[INFO] 已保留先前儲存的網路設定: %s",
 	"conn.daemon_fail":        "❌ 錯誤: %v",
 	"conn.ask_manual_scan":    "\n是否要手動掃描網路? [y/N]: ",
 	"conn.try_scan_mode":      "[INFO] 嘗試使用最小配置啟動掃描模式...",

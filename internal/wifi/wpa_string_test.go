@@ -18,11 +18,44 @@ func TestDecodeWpaString(t *testing.T) {
 		{`\101BC`, "ABC"},                      // octal
 		{`Caf\xc3\xa9 2.4G`, "Café 2.4G"},      // mixed with spaces
 		{`trailing\`, `trailing\`},             // dangling backslash kept
+		// iw (dev link / scan) format: always two hex digits, backslash and edge spaces as \xNN
+		{`\xe6\x84\x9b\xe7\x98\x8bXS max`, "愛瘋XS max"},
+		{`a\x5cb`, `a\b`},
+		{`\x20edge\x20`, " edge "},
 	}
 	for _, tt := range tests {
 		if got := decodeWpaString(tt.in); got != tt.want {
 			t.Errorf("decodeWpaString(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestCarryOverSavedNetwork(t *testing.T) {
+	fresh := "ctrl_interface=/var/run/wpa_supplicant\ncountry=TW\n\nnetwork={\n ssid=\"XmlDefault\"\n key_mgmt=NONE\n}\n"
+	saved := "ctrl_interface=/old\ncountry=US\n\nnetwork={\n ssid=e6849be7988b5853206d6178\n key_mgmt=SAE\n sae_password=\"x\"\n ieee80211w=2\n}\n"
+
+	got, kept := carryOverSavedNetwork(fresh, saved)
+	if !kept {
+		t.Fatal("expected the saved network to be carried over")
+	}
+	// Globals come from the fresh (XML) content, the network from the previous file
+	for _, want := range []string{"ctrl_interface=/var/run/wpa_supplicant", "country=TW", "ssid=e6849be7988b5853206d6178", "ieee80211w=2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"XmlDefault", "country=US", "/old"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("unexpected %q in:\n%s", unwanted, got)
+		}
+	}
+	if n := strings.Count(got, "network={"); n != 1 {
+		t.Errorf("expected exactly one network block, got %d:\n%s", n, got)
+	}
+
+	// Nothing saved yet: the fresh content (including the XML default network) is used as is
+	if got, kept := carryOverSavedNetwork(fresh, "ctrl_interface=/old\n"); kept || got != fresh {
+		t.Errorf("expected fresh content unchanged, kept=%v:\n%s", kept, got)
 	}
 }
 

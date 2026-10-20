@@ -48,6 +48,7 @@ adb shell ls -l /data/local/tmp/QWifiTestTool
 | `-RfAll` | 全量 29 組射頻實測（DFS 項目每項最長 120 秒） | 很長 |
 | `-ApOnly` / `-StaOnly` | 僅 AP 或僅 STA 項目，可與上列組合 | — |
 | `-DiagOnly` | 僅 Phase 4：診斷、驅動卸載／載入／重載、重載後 AP 實測 | 中 |
+| `-StaConnect` / `-StaConnectOnly` | 加跑／僅跑 Phase 5：連線到真實參考 AP（C01–C06） | 約 5 分鐘 |
 
 `-DiagOnly` 會重新載入驅動。執行前必須先徵得使用者同意，並告知：若重載後射頻異常（已知 FME170Q-865 會發生），板子可能需要重開機才能恢復 RF 測試。
 
@@ -55,7 +56,8 @@ adb shell ls -l /data/local/tmp/QWifiTestTool
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e_wifi_test.ps1 $ARGUMENTS
 ```
 
-- 參數僅接受上表的 switch 與 `-ModuleName` / `-Iface` / `-CanaryIface` / `-OutDir`；若 `$ARGUMENTS` 含其他內容，停止並向使用者確認。
+- Phase 5 需要參考 AP 檔案 `%USERPROFILE%\.qwt\ref_ap.txt`（第 1 行 SSID、第 2 行密碼）。檔案不存在時，請使用者自行建立；不要在對話中索取密碼，也不要把密碼寫入 repo。不得讀出或複述密碼，回報時只提 SSID。
+- 參數僅接受上表的 switch 與 `-ModuleName` / `-Iface` / `-CanaryIface` / `-OutDir` / `-RefApFile`；若 `$ARGUMENTS` 含其他內容，停止並向使用者確認。
 - 手動在板上執行工具做探測（不經 E2E 腳本）時，存檔動作會覆蓋 `/etc/hostapd.conf` 等檔案且不會自動還原：探測前先自行備份，結束後還原。
 - 預設或 `-RfOnly` / `-RfAll` 執行時間較長：以背景方式執行，完成後再讀取輸出。
 - 腳本只清理綁定測試網卡的 hostapd / wpa_supplicant / dnsmasq 並重設該網卡，執行期間板端 WiFi 會中斷。

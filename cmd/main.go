@@ -17,7 +17,7 @@ import (
 )
 
 // Version defines the application version string
-const Version = "V1.18"
+const Version = "V1.19"
 
 func main() {
 	// Show banner
@@ -239,6 +239,7 @@ func runStationMode(module *models.WiFiModule, binMgr *sys.BinaryManager, platfo
 	keepRunning, err := connector.Start()
 	if err != nil {
 		ui.ShowError(err)
+		connector.StopIfStarted()
 		return false
 	}
 

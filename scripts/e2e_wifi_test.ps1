@@ -12,6 +12,12 @@
     [string]$Iface = "wlan0",
     # Fake daemons are bound to this interface; they must survive every cleanup aimed at $Iface
     [string]$CanaryIface = "eth9",
+    # Phase 5 (Station connection to a real reference AP): add it to the run, or run only it
+    [switch]$StaConnect,
+    [switch]$StaConnectOnly,
+    # Reference AP file, UTF-8: line 1 = SSID, line 2 = password (empty for an open network).
+    # Kept outside the repo; the password is masked in every console line, artifact and result.
+    [string]$RefApFile = (Join-Path $env:USERPROFILE ".qwt\ref_ap.txt"),
     # results.json and per-case failure artifacts (TUI transcript, configs, dmesg) are written here
     [string]$OutDir = (Join-Path $env:TEMP ("qwt_e2e_" + (Get-Date -Format "yyyyMMdd_HHmmss")))
 )
@@ -34,6 +40,10 @@ $CANARY_NAMES = @("udhcpc", "dnsmasq", "wpa_supplicant", "hostapd")
 # The tests overwrite and delete these board files; originals are backed up here and restored at the end
 $BACKUP_DIR = "/data/local/tmp/qwt_e2e_backup"
 $BOARD_CONFIGS = "/etc/wpa_supplicant.conf /etc/hostapd.conf /etc/dnsmasq.conf"
+# Without /etc/wpa_supplicant.conf Station mode writes wpa_supplicant_<module>.conf into its working
+# directory (Linux: the adb shell cwd; Android: /data/local/tmp/wifi_tools). Phase 5 stores the
+# reference AP password there, so these files are backed up and restored as well. Set after ADB connects.
+$GEN_CONF_DIR = "/"
 # The tool is considered to be waiting on a prompt once its output has been quiet this long
 $QUIET_MS = 300
 # Printed by the tool when it rejects an input, which means the scripted inputs went out of step
@@ -55,6 +65,14 @@ $CanaryDeaths = [ordered]@{}
 $CanaryChecked = [System.Collections.Generic.List[string]]::new()
 $CanaryError = ""
 $CanaryInconclusive = $false
+# Strings that must never reach the console, artifacts or results (the reference AP password)
+$SECRETS = [System.Collections.Generic.List[string]]::new()
+$REF_SSID = ""
+$REF_PSK = ""
+$WPA_CTRL = "/var/run/wpa_supplicant"
+$StaInfo = ""
+# Per-check outcomes of Phase 5 ("" = passed), filled in by Check steps inside tool sessions
+$StaCheck = @{}
 
 if (-not ("QwtStreamPump" -as [type])) {
     Add-Type -TypeDefinition @'
@@ -117,11 +135,20 @@ function Remove-Ansi {
     return (($Text -replace "\x1b\[[0-9;?]*[A-Za-z]", "") -replace "`r", "")
 }
 
+function Hide-Secrets {
+    # Masks every registered secret (the reference AP password) before text leaves the script
+    param([string]$Text)
+    foreach ($s in $SECRETS) {
+        if ($s) { $Text = $Text.Replace($s, "***") }
+    }
+    return $Text
+}
+
 function Save-Artifact {
     # Writes a failure artifact (transcript, config, dmesg) to $OutDir as <TcId>.<Name>
     param([string]$TcId, [string]$Name, [string]$Content)
     $path = Join-Path $OutDir "$TcId.$Name"
-    [System.IO.File]::WriteAllText($path, $Content, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($path, (Hide-Secrets $Content), [System.Text.UTF8Encoding]::new($false))
 }
 
 function Add-Result {
@@ -131,7 +158,7 @@ function Add-Result {
         Id = $TcId
         Name = $Name
         Status = $Status
-        Details = $Details
+        Details = (Hide-Secrets $Details)
     })
 }
 
@@ -151,8 +178,8 @@ function Push-BoardScript {
 function Backup-BoardConfigs {
     # A leftover backup means a previous run was interrupted before restoring: it still holds the
     # originals, so it is kept instead of being overwritten with test-generated files.
-    $cmd = 'if [ -f @BK@/.done ]; then echo REUSE; else rm -rf @BK@; mkdir -p @BK@ && for f in @FILES@; do if [ -f $f ]; then cp -p $f @BK@/; else echo $f >> @BK@/.absent; fi; done && touch @BK@/.done && echo NEW; fi'
-    $out = Exec-Adb ($cmd.Replace("@BK@", $BACKUP_DIR).Replace("@FILES@", $BOARD_CONFIGS))
+    $cmd = 'if [ -f @BK@/.done ]; then echo REUSE; else rm -rf @BK@; mkdir -p @BK@/gen && for f in @FILES@; do if [ -f $f ]; then cp -p $f @BK@/; else echo $f >> @BK@/.absent; fi; done && for f in @GEN@/wpa_supplicant_*.conf; do if [ -f $f ]; then cp -p $f @BK@/gen/; fi; done; touch @BK@/.done && echo NEW; fi'
+    $out = Exec-Adb ($cmd.Replace("@BK@", $BACKUP_DIR).Replace("@FILES@", $BOARD_CONFIGS).Replace("@GEN@", $GEN_CONF_DIR))
     if ($out -match "REUSE") {
         Write-Host "[WARN] Found backup from an interrupted run in $BACKUP_DIR; keeping it (it holds the originals)" -ForegroundColor Yellow
         return $true
@@ -161,11 +188,12 @@ function Backup-BoardConfigs {
 }
 
 function Restore-BoardConfigs {
-    # Puts back the original files and deletes the ones that did not exist before the run
-    $cmd = 'if [ -f @BK@/.done ]; then for f in @FILES@; do b=$(basename $f); if [ -f @BK@/$b ]; then cp -p @BK@/$b $f; elif grep -qxF $f @BK@/.absent 2>/dev/null; then rm -f $f; fi; done; rm -rf @BK@; echo RESTORED; fi'
-    $out = Exec-Adb ($cmd.Replace("@BK@", $BACKUP_DIR).Replace("@FILES@", $BOARD_CONFIGS))
+    # Puts back the original files and deletes the ones that did not exist before the run; generated
+    # wpa_supplicant_*.conf files are replaced wholesale by the backed-up set (possibly none)
+    $cmd = 'if [ -f @BK@/.done ]; then for f in @FILES@; do b=$(basename $f); if [ -f @BK@/$b ]; then cp -p @BK@/$b $f; elif grep -qxF $f @BK@/.absent 2>/dev/null; then rm -f $f; fi; done; rm -f @GEN@/wpa_supplicant_*.conf; for f in @BK@/gen/*.conf; do if [ -f $f ]; then cp -p $f @GEN@/; fi; done; rm -rf @BK@; echo RESTORED; fi'
+    $out = Exec-Adb ($cmd.Replace("@BK@", $BACKUP_DIR).Replace("@FILES@", $BOARD_CONFIGS).Replace("@GEN@", $GEN_CONF_DIR))
     if ($out -match "RESTORED") {
-        Write-Host "Board configs restored ($BOARD_CONFIGS)" -ForegroundColor Green
+        Write-Host "Board configs restored ($BOARD_CONFIGS $GEN_CONF_DIR/wpa_supplicant_*.conf)" -ForegroundColor Green
     } else {
         Write-Host "[WARN] Board config restore did not run; check $BACKUP_DIR on the board" -ForegroundColor Yellow
     }
@@ -304,7 +332,7 @@ function Send-ToolInputs {
 
 function Get-SessionText {
     param($Session)
-    return (Remove-Ansi ($Session.Out.Text + $Session.Err.Text))
+    return (Hide-Secrets (Remove-Ansi ($Session.Out.Text + $Session.Err.Text)))
 }
 
 function Stop-ToolSession {
@@ -416,9 +444,15 @@ function Invoke-ToolSteps {
         $mark = 0
         $label = "at start"
         if ($null -ne $st.Send) {
+            # A scriptblock Send is computed from the output so far (e.g. a scan list index)
+            $value = $st.Send
+            if ($value -is [scriptblock]) {
+                $value = & $value (Get-SessionText $s)
+                if ($null -eq $value) { $reason = "step ${n}: could not determine '$($st.Label)' from the output"; break }
+            }
             $mark = $s.Out.Length
-            $label = "after '$($st.Send)'"
-            try { $s.In.WriteLine($st.Send) } catch { $reason = "step ${n}: tool exited before '$($st.Send)' was sent"; break }
+            $label = if ($st.Secret) { "after '<password>'" } elseif ($st.Label) { "after '$($st.Label)'" } else { "after '$value'" }
+            try { $s.In.WriteLine($value) } catch { $reason = "step ${n}: tool exited before the input ($label) was sent"; break }
         }
         $timeout = if ($st.Timeout) { $st.Timeout } else { 15000 }
         $r = Wait-ToolText $s $mark $st.Expect $st.Fail $timeout
@@ -888,6 +922,260 @@ function Invoke-DiagnosisPhase {
     Run-ApRfTestCase -TcId "TC-DIAG-04" -Name "2.4GHz AP RF TX after driver reload" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "WiFi 7" -ExpectedTuiCh "channel 6" -ExpectedRfWidth "20 MHz" -Category "Diagnosis & Driver"
 }
 
+# ==================== Phase 5: Station Connection (reference AP) ====================
+
+function Read-RefAp {
+    # Loads SSID + password from $RefApFile and registers the password as a secret
+    if (-not (Test-Path $RefApFile)) { return $false }
+    $lines = @(Get-Content -Encoding UTF8 $RefApFile)
+    if ($lines.Count -lt 1 -or -not $lines[0].Trim()) { return $false }
+    $script:REF_SSID = $lines[0].Trim()
+    # The tool trims the password it reads, so do the same here
+    $script:REF_PSK = if ($lines.Count -ge 2) { $lines[1].Trim() } else { "" }
+    if ($REF_PSK) { $SECRETS.Add($REF_PSK) }
+    return $true
+}
+
+function ConvertFrom-WpaEscaped {
+    # Decodes wpa_cli's printf_encode output (\xNN bytes, \\, \", \n, \r, \t, \e) back to text
+    param([string]$Text)
+    $bytes = [System.Collections.Generic.List[byte]]::new()
+    $i = 0
+    while ($i -lt $Text.Length) {
+        if ($Text[$i] -eq '\' -and $i + 1 -lt $Text.Length) {
+            $n = $Text[$i + 1]
+            if ($n -eq 'x' -and $i + 3 -lt $Text.Length -and $Text.Substring($i + 2, 2) -match '^[0-9a-fA-F]{2}$') {
+                $bytes.Add([Convert]::ToByte($Text.Substring($i + 2, 2), 16)); $i += 4; continue
+            }
+            $map = @{ '\' = 0x5c; '"' = 0x22; 'n' = 0x0a; 'r' = 0x0d; 't' = 0x09; 'e' = 0x1b }
+            if ($map.ContainsKey([string]$n)) { $bytes.Add([byte]$map[[string]$n]); $i += 2; continue }
+        }
+        foreach ($b in [System.Text.Encoding]::UTF8.GetBytes([string]$Text[$i])) { $bytes.Add($b) }
+        $i++
+    }
+    return [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
+}
+
+function Find-ScanIndex {
+    # Returns the scan-list number whose SSID column equals $REF_SSID; records C01's outcome
+    param([string]$Transcript)
+    $rows = [regex]::Matches($Transcript, '(?m)^\[(\d+)\] SSID: (.*?)\s*\t')
+    foreach ($m in $rows) {
+        if ($m.Groups[2].Value.TrimEnd() -ceq $REF_SSID) {
+            $script:StaCheck["C01"] = ""
+            return $m.Groups[1].Value
+        }
+    }
+    # Neighbouring SSIDs can carry people's names: report only the count, the transcript artifact has the list
+    $script:StaCheck["C01"] = "'$REF_SSID' not in scan list ($($rows.Count) other networks listed)"
+    return $null
+}
+
+function Wait-RefApVisible {
+    # Polls a raw iw scan until $REF_SSID is on air. Phone hotspots stop beaconing while idle, so a
+    # missing AP is an environment problem (INCONCLUSIVE), not a tool failure.
+    param([int]$TimeoutSec = 90)
+    Exec-Adb "ip link set $TEST_IFACE up 2>/dev/null" | Out-Null
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $hinted = $false
+    while ((Get-Date) -lt $deadline) {
+        $raw = Exec-Adb "iw dev $TEST_IFACE scan 2>/dev/null | sed -n 's/^[[:space:]]*SSID: //p'"
+        # iw escapes bytes >= 0x80 as \xNN, the same form ConvertFrom-WpaEscaped decodes
+        $ssids = @($raw -split "`n" | ForEach-Object { ConvertFrom-WpaEscaped $_.TrimEnd("`r") })
+        if ($ssids -ccontains $REF_SSID) { return $true }
+        if (-not $hinted) {
+            Write-Host "  Waiting up to ${TimeoutSec}s for '$REF_SSID' to beacon (phone hotspot: keep its settings screen open)..." -ForegroundColor Yellow
+            $hinted = $true
+        }
+        Start-Sleep -Seconds 5
+    }
+    return $false
+}
+
+function Get-StaState {
+    # wpa_supplicant state, decoded SSID, IPv4 address and default gateway of $TEST_IFACE
+    $out = Exec-Adb "wpa_cli -p $WPA_CTRL -i $TEST_IFACE status 2>/dev/null; echo @@; ip -4 addr show dev $TEST_IFACE 2>/dev/null; echo @@; ip route show dev $TEST_IFACE 2>/dev/null"
+    $parts = @($out -split '@@') + @("", "", "")
+    $st = @{ State = ""; Ssid = ""; Ip = ""; Gw = "" }
+    if ($parts[0] -match '(?m)^wpa_state=(\S+)') { $st.State = $matches[1] }
+    if ($parts[0] -match '(?m)^ssid=(.*)$') { $st.Ssid = ConvertFrom-WpaEscaped $matches[1].Trim() }
+    if ($parts[1] -match 'inet (\S+)') { $st.Ip = $matches[1] }
+    if ($parts[2] -match 'default via (\S+)') { $st.Gw = $matches[1] }
+    return $st
+}
+
+function Test-StaConnected {
+    # "" when $TEST_IFACE is associated to the reference AP with an IP, the config holds the SSID
+    # in the right encoding and the gateway answers ping; otherwise the list of problems
+    $st = Get-StaState
+    $problems = [System.Collections.Generic.List[string]]::new()
+    if ($st.State -ne "COMPLETED") { $problems.Add("wpa_state=$($st.State)") }
+    if ($st.Ssid -cne $REF_SSID) { $problems.Add("wpa_cli ssid='$($st.Ssid)'") }
+    if (-not $st.Ip) { $problems.Add("no IPv4 on $TEST_IFACE") }
+
+    # Non-ASCII SSIDs must be written as unquoted hex, plain ones as a quoted string
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($REF_SSID)
+    $expected = if ($bytes | Where-Object { $_ -ge 0x80 }) {
+        "ssid=" + (($bytes | ForEach-Object { '{0:x2}' -f $_ }) -join "")
+    } else { "ssid=`"$REF_SSID`"" }
+    # Same priority as the tool's ConfigManager: custom -> system -> generated in its working directory
+    $conf = (Exec-Adb "for f in $GEN_CONF_DIR/wpa_supplicant_*_custom.conf /etc/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant.conf $GEN_CONF_DIR/wpa_supplicant_*.conf; do if [ -f `$f ]; then echo `$f; break; fi; done").Trim()
+    $confSsids = @((Exec-Adb "grep -E '^[[:space:]]*ssid=' $conf 2>/dev/null") -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if (-not $conf) {
+        $problems.Add("no wpa_supplicant config found")
+    } elseif (-not ($confSsids | Where-Object { $_ -eq $expected })) {
+        $problems.Add("$conf lacks '$expected' (has: $($confSsids -join ', '))")
+    }
+
+    if ($st.Gw) {
+        $ping = Exec-Adb "ping -c 3 -W 2 -I $TEST_IFACE $($st.Gw) 2>&1 | tail -n 2"
+        if (-not ($ping -match '(\d+) (packets )?received' -and [int]$matches[1] -gt 0)) { $problems.Add("gateway $($st.Gw) not reachable") }
+    } elseif ($st.Ip) {
+        $problems.Add("no default route via $TEST_IFACE")
+    }
+    if ($problems.Count -eq 0) { $script:StaInfo = "COMPLETED, $($st.Ip), gateway $($st.Gw) reachable, $conf has $expected" }
+    return ($problems -join "; ")
+}
+
+function Test-StaDisconnected {
+    # "" when nothing of the station session is left on $TEST_IFACE
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $left = Exec-Adb "sh $CLEANUP_SH --dry-run $TEST_IFACE wpa_supplicant udhcpc dhclient 2>/dev/null"
+    if ($left.Trim()) { $problems.Add("still running: $($left -replace "`n", ', ')") }
+    $st = Get-StaState
+    if ($st.Ip) { $problems.Add("IPv4 $($st.Ip) still on $TEST_IFACE") }
+    return ($problems -join "; ")
+}
+
+function Add-StaResult {
+    # One result per check; a check that never ran inherits the session's failure reason, or is
+    # INCONCLUSIVE when it was blocked by a failed prerequisite ($DependsOn) or a missing AP ($Blocked)
+    param([string]$Key, [string]$Name, $Session, [string]$PassDetails, [switch]$Last, [string]$DependsOn, [string]$Blocked)
+    $id = "TC-STA-$Key"
+    if (-not $Blocked -and $DependsOn -and -not $StaCheck.ContainsKey($Key) -and
+        (-not $StaCheck.ContainsKey($DependsOn) -or $StaCheck[$DependsOn])) {
+        $Blocked = "blocked: prerequisite TC-STA-$DependsOn did not pass"
+    }
+    if ($Blocked) {
+        Write-Host "  [$id] $Name ... [INCONCLUSIVE] ($Blocked)" -ForegroundColor Yellow
+        if ($Session) { Save-Artifact $id "tui.log" $Session.Transcript }
+        Add-Result "STA Connection" $id $Name "INCONCLUSIVE" $Blocked
+        return
+    }
+    if (-not $StaCheck.ContainsKey($Key)) {
+        $err = "not reached: $($Session.Reason)"
+    } else {
+        $err = $StaCheck[$Key]
+        if (-not $err -and $Last -and -not $Session.Ok) { $err = $Session.Reason }
+    }
+    if ($err) {
+        Write-Host "  [$id] $Name ... [FAIL] ($(Hide-Secrets $err))" -ForegroundColor Red
+        Save-Artifact $id "tui.log" $Session.Transcript
+        Add-Result "STA Connection" $id $Name "FAIL" $err
+    } else {
+        Write-Host "  [$id] $Name ... [PASS]" -ForegroundColor Green
+        Add-Result "STA Connection" $id $Name "PASS" $PassDetails
+    }
+}
+
+function Invoke-StaConnectionPhase {
+    $ssidRe = [regex]::Escape($REF_SSID)
+    $intro = @(
+        @{ Expect = "Switch to English" },
+        @{ Send = "N"; Expect = "選擇模組編號" },
+        @{ Send = $MODULE_IDX; Expect = $MAIN_MENU }
+    )
+    # Scan -> pick the reference AP -> password. Starts with no system or saved config, so the tool
+    # generates wpa_supplicant_<module>.conf in its working directory (and offers to save it as custom).
+    # C04 then checks that this generated file is reused with its network (N5 regression) and C05 that
+    # the connection survives the tool exiting (N6 regression).
+    $freshSystemConf = "rm -f /etc/wpa_supplicant.conf $GEN_CONF_DIR/wpa_supplicant_*.conf"
+    $scanAndPick = @(
+        @{ Send = "3"; Expect = "是否保存為客製化配置"; Timeout = 20000 },
+        @{ Send = "N"; Expect = "選擇網路編號"; Timeout = 60000 },
+        @{ Send = { param($t) Find-ScanIndex $t }; Label = "scan index of reference AP"; Expect = "輸入密碼"; Timeout = 10000 }
+    )
+    $script:StaCheck = @{}
+    $names = [ordered]@{
+        C01 = "Scan list shows reference SSID '$REF_SSID'"
+        C02 = "Connect via scan + password + DHCP"
+        C03 = "Disconnect leaves $TEST_IFACE clean"
+        C04 = "Auto-reconnect from saved config"
+        C05 = "Detect and keep existing connection"
+        C06 = "Wrong password is reported as failure"
+    }
+    $offAir = "reference AP '$REF_SSID' not on air within 90s (environment, not the tool)"
+
+    # Session A: TC-STA-C01 scan, C02 connect, C03 disconnect
+    Cleanup-Environment
+    if (-not (Wait-RefApVisible)) {
+        foreach ($k in $names.Keys) { Add-StaResult $k $names[$k] $null "" -Blocked $offAir }
+        return
+    }
+    Exec-Adb $freshSystemConf | Out-Null
+    $a = Invoke-ToolSteps ($intro + $scanAndPick + @(
+        @{ Send = $REF_PSK; Secret = $true; Expect = "(連接成功!|連接失敗，診斷資訊|已連接但未獲取 IP)[\s\S]*是否斷開連線"; Timeout = 120000 },
+        @{ Check = { $script:StaCheck["C02"] = Test-StaConnected; "" } },
+        @{ Send = "y"; Expect = "繼續其他操作"; Timeout = 30000 },
+        @{ Check = { $script:StaCheck["C03"] = Test-StaDisconnected; "" } },
+        @{ Send = "N"; Expect = $GOODBYE_RE }
+    ))
+    if ($StaCheck.ContainsKey("C02") -and -not $StaCheck["C02"] -and $a.Transcript -notmatch "連接成功!") {
+        $StaCheck["C02"] = "board is connected but the tool did not report success"
+    }
+    Add-StaResult "C01" $names.C01 $a "Listed and selectable by its decoded name"
+    Add-StaResult "C02" $names.C02 $a $StaInfo -DependsOn "C01"
+    Add-StaResult "C03" $names.C03 $a "No wpa_supplicant/DHCP client or IPv4 left on $TEST_IFACE" -Last -DependsOn "C02"
+
+    # Session B: TC-STA-C04 auto-connect from the saved config (hex SSID round trip), connection kept.
+    # Needs the network C02 saved; skipped (INCONCLUSIVE) otherwise.
+    $b = $null
+    if ($StaCheck.ContainsKey("C02") -and -not $StaCheck["C02"]) {
+        Cleanup-Environment
+        $b = Invoke-ToolSteps ($intro + @(
+            # The generated config is rebuilt from XML on every entry, keeping the network saved by C02
+            @{ Send = "3"; Expect = "已保留先前儲存的網路設定[\s\S]*是否保存為客製化配置"; Timeout = 20000 },
+            @{ Send = "N"; Expect = "已自動連接到: $ssidRe[\s\S]*繼續其他操作"; Fail = "自動連接失敗"; Timeout = 60000 },
+            @{ Check = { $script:StaCheck["C04"] = Test-StaConnected; "" } },
+            @{ Send = "N"; Expect = $GOODBYE_RE }
+        ))
+    }
+    Add-StaResult "C04" $names.C04 $b $StaInfo -Last -DependsOn "C02"
+
+    # Session C: TC-STA-C05 an existing connection is detected and kept (needs B's live connection)
+    $c = $null
+    if ($StaCheck.ContainsKey("C04") -and -not $StaCheck["C04"]) {
+        $c = Invoke-ToolSteps ($intro + @(
+            @{ Send = "3"; Expect = "當前連接的網路: $ssidRe[\s\S]*是否斷開並重新連接"; Timeout = 20000 },
+            @{ Send = "N"; Expect = "保持當前連線[\s\S]*繼續其他操作"; Timeout = 15000 },
+            @{ Check = { $script:StaCheck["C05"] = Test-StaConnected; "" } },
+            @{ Send = "N"; Expect = $GOODBYE_RE }
+        ))
+    }
+    Add-StaResult "C05" $names.C05 $c "Detected '$REF_SSID', kept it, still connected after the tool exited" -Last -DependsOn "C04"
+
+    # Session D: TC-STA-C06 wrong password is reported as a failure, not as success.
+    # Its own scan re-records C01, so a vanished AP turns C06 INCONCLUSIVE instead of FAIL.
+    Cleanup-Environment
+    if (-not (Wait-RefApVisible)) {
+        Add-StaResult "C06" $names.C06 $null "" -Blocked $offAir
+        Cleanup-Environment
+        return
+    }
+    Exec-Adb $freshSystemConf | Out-Null
+    $d = Invoke-ToolSteps ($intro + $scanAndPick + @(
+        @{ Send = "qwt-wrong-pass-0000"; Expect = "連接失敗，診斷資訊[\s\S]*是否斷開連線"; Fail = "連接成功!"; Timeout = 120000 },
+        @{ Check = { $st = Get-StaState; $script:StaCheck["C06"] = if ($st.State -eq "COMPLETED") { "board reports COMPLETED with a wrong password" } else { "" }; "" } },
+        @{ Send = "y"; Expect = "繼續其他操作"; Timeout = 30000 },
+        @{ Send = "N"; Expect = $GOODBYE_RE }
+    ))
+    $reasons = ""
+    if ($d.Transcript -match '可能原因：\s*\n((?:.*\n){1,4})') { $reasons = ($matches[1] -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -join " / " }
+    Add-StaResult "C06" $names.C06 $d "Failure reported; reasons: $reasons" -Last -DependsOn "C01"
+
+    Cleanup-Environment
+}
+
 function Show-SummaryReport {
     param([string]$KernelVer)
     Write-Host ""
@@ -944,13 +1232,25 @@ Exec-Adb "killall -9 QWifiTestTool 2>/dev/null" | Out-Null
 if (-not (Resolve-ModuleIndex)) { exit 1 }
 Write-Host "Test module: [$MODULE_IDX] $MODULE_LABEL (interface $TEST_IFACE)" -ForegroundColor Green
 
+if (($StaConnect -or $StaConnectOnly) -and -not (Read-RefAp)) {
+    Write-Host "Error: -StaConnect needs the reference AP file $RefApFile (UTF-8; line 1 = SSID, line 2 = password)" -ForegroundColor Red
+    exit 1
+}
+if ($StaConnect -or $StaConnectOnly) {
+    $pskNote = if ($REF_PSK) { "password from $RefApFile, masked in all output" } else { "open network" }
+    Write-Host "Reference AP: $REF_SSID ($pskNote)" -ForegroundColor Green
+}
+
+$GEN_CONF_DIR = if ((Exec-Adb "getprop ro.build.version.sdk 2>/dev/null").Trim()) { "/data/local/tmp/wifi_tools" } else { (Exec-Adb "pwd").Trim().TrimEnd("/") }
 if (-not (Backup-BoardConfigs)) {
     Write-Host "Error: Failed to back up board configs to $BACKUP_DIR!" -ForegroundColor Red
     exit 1
 }
 
-$runMatrix = (-not $RfOnly) -and (-not $RfAll) -and (-not $DiagOnly)
-$runRf = (-not $MatrixOnly) -and (-not $DiagOnly)
+$runMatrix = (-not $RfOnly) -and (-not $RfAll) -and (-not $DiagOnly) -and (-not $StaConnectOnly)
+$runRf = (-not $MatrixOnly) -and (-not $DiagOnly) -and (-not $StaConnectOnly)
+# Phase 5 needs a reference AP, so it is opt-in as well
+$runStaConnect = $StaConnect -or $StaConnectOnly
 # Phase 4 unloads/reloads the driver and can leave the board in a degraded state, so it is opt-in only
 $runDiag = [bool]$DiagOnly
 
@@ -1137,6 +1437,16 @@ try {
         # English UI through the whole AP start path (TUI wording differs, so only RF state + no Chinese)
         Run-ApRfTestCase -TcId "TC-RF-EN01" -Name "2.4GHz WiFi 7 20M RF TX (English UI)" -BandKey 1 -PresetKey 2 -ExpectedTuiMode "" -ExpectedTuiCh "" -ExpectedRfWidth "20 MHz" -Lang "en"
         Update-CanaryStatus "Phase 3"
+    }
+
+    # ----------------- PHASE 5: Station Connection (reference AP) -----------------
+    if ($runStaConnect) {
+        Write-Host ""
+        Write-Host "==========================================================================" -ForegroundColor Magenta
+        Write-Host ">> Phase 5: Station Connection to Reference AP '$REF_SSID'" -ForegroundColor Magenta
+        Write-Host "==========================================================================" -ForegroundColor Magenta
+        Invoke-StaConnectionPhase
+        Update-CanaryStatus "Phase 5"
     }
 
     # ----------------- PHASE 4: Diagnosis & Driver Lifecycle -----------------

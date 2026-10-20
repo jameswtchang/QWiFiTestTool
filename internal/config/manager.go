@@ -84,6 +84,11 @@ func (cm *ConfigManager) SaveAsCustomConfig(content string) error {
 	return nil
 }
 
+// CustomConfigPath returns where SaveAsCustomConfig writes (tier 1 of GetConfigPath)
+func (cm *ConfigManager) CustomConfigPath() string {
+	return cm.getCustomConfigPath()
+}
+
 // getCustomConfigPath returns the path for custom (user-saved) config
 func (cm *ConfigManager) getCustomConfigPath() string {
 	basePath := GetConfigBasePath()

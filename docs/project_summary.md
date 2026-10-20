@@ -370,6 +370,45 @@
 * `-DiagOnly` (另行執行，V1.17 執行檔)：TC-DIAG-01～03 PASS，TC-DIAG-04 FAIL (見 14.3 已知問題)。
 * 未涵蓋：Station 實際連線與中文 SSID (需參考 AP)、企業版 AP 實連、Android 平台。
 
+## 15. 最新更新 (2026-10-20) — V1.19 (Station 連線保留與設定持久化修正、E2E 實際連線測試)
+
+以 iPhone 熱點 (中文 SSID、WPA3-SAE、2.4GHz) 作為參考 AP 新增 Phase 5 實際連線測試，找出 3 個 Station 模式缺陷並修正。這 3 個缺陷都在一般手動測試較少走到的路徑上：沒有系統設定檔、離開工具後保留連線、帶著既有連線再次進入。
+
+### 15.1 Station 模式修正
+* **離開工具後連線中斷 (`connector.go`)**：
+  * 原因：wpa_supplicant 的輸出經 pipe 交給工具加時間戳寫入 log。使用者選擇保留連線並離開工具後，pipe 沒有讀取端，daemon 下一次寫 log 就被 SIGPIPE 終止，畫面上卻顯示「連線已保持」。
+  * 修正：改以 `sh -c 'trap "" PIPE; exec wpa_supplicant ...'` 啟動，忽略 SIGPIPE 的設定在 exec 後保留，寫入失敗只會回傳 EPIPE；另以 `Setsid` 開新 session (`internal/sys/detach_linux.go`)，不受終端機 SIGHUP / SIGINT 影響。Ctrl+C 與主動斷線仍經 `Stop()` 結束 daemon。
+  * Log 格式維持 `[YYYY-MM-DD HH:MM:SS.mmm]`；離開工具後 daemon 的後續輸出不再寫入 log。
+* **無系統設定時網路無法保存 (`connector.go`、`config_updater.go`)**：
+  * 原因：沒有 `/etc/wpa_supplicant.conf` 時，工具使用工作目錄的 `wpa_supplicant_<module>.conf`，但每次進入都把它重寫成空白範本，上次連過的網路因此遺失，自動重連永遠不會成功。
+  * 修正：仍每次依 XML 重建，讓 XML 修改生效，但保留上次存的 network 區塊，並顯示「已保留先前儲存的網路設定」。
+  * 選擇「保存為客製化配置」後，之後新增的網路會寫入客製化檔 (原本客製化檔只會存下空白範本)。
+* **既有連線的中文 SSID 顯示為 `\xNN` (`connector_direct.go`)**：`iw dev link` 的 SSID 同樣有跳脫，改用 `decodeWpaString` 解碼。
+* **防護 (尚未實機驗證)**：
+  * 修正後 wpa_supplicant 會存活到工具結束之後，因此 `startDaemon` 啟動前會先結束同一張網卡上殘留的 wpa_supplicant，避免兩個實例同時操作網卡。
+  * Station 流程出錯時，改為停掉本次啟動的 daemon，不再留在背景。
+
+### 15.2 E2E Phase 5 (`-StaConnect` / `-StaConnectOnly`)
+* 參考 AP 資訊放在 `%USERPROFILE%\.qwt\ref_ap.txt` (第 1 行 SSID、第 2 行密碼)，不進 repo；主控台、`results.json`、TUI 紀錄中的密碼一律遮罩為 `***`。
+* 測試項目：
+  * TC-STA-C01 掃描；
+  * C02 連線 + DHCP + gateway ping，並檢查非 ASCII SSID 以 hex 寫入；
+  * C03 斷線無殘留；
+  * C04 自動重連 (第 2 個缺陷的迴歸測試)；
+  * C05 保留既有連線 (第 1、3 個缺陷的迴歸測試)；
+  * C06 錯誤密碼回報失敗。
+* 開跑前先以 `iw scan` 等待參考 AP 出現 (最多 90 秒)；手機熱點閒置時會停止廣播，看不到 AP 時判 INCONCLUSIVE。前置項目未通過時，後續項目判 INCONCLUSIVE，不連帶判 FAIL。
+* 工具在工作目錄產生的 `wpa_supplicant_*.conf` 納入板端備份與還原，避免參考 AP 密碼留在板上。
+
+### 15.3 已知問題 (尚未修正)
+* 工具的 session log 與設定檔顯示會以明文記錄 `sae_password` / `psk`。
+* 14.3 的驅動重載問題、診斷畫面核心日誌條數問題仍存在。
+
+### 15.4 驗證成果 (Qualcomm FME170Q-865，Linux 5.10.160)
+* 本機 `go vet ./...`、`go test ./...` 全數通過；新增 `carryOverSavedNetwork` 與 iw SSID 格式解碼的單元測試。
+* 實機 E2E (V1.19 完整模式，exit code 0)：**49 PASS / 0 FAIL / 1 INCONCLUSIVE (共 50)**。Phase 1 AP 矩陣 30/30、Phase 2 STA 策略 11/12 PASS + 1 INCONCLUSIVE (TC-STA-P01 6GHz 鎖頻掃描 0 BSS，附近無 6G AP)、Phase 3 RF 實體廣播 7/7、網卡隔離 TC-SYS-01 PASS。
+* Phase 5 (`-StaConnectOnly`，參考 AP 為 iPhone 熱點，執行檔程式碼與 V1.19 相同，僅版本字串尚未更新)：**7/7 PASS** (C01～C06 + TC-SYS-01)；wpa_supplicant log 時間戳格式確認不變。
+
 
 
 

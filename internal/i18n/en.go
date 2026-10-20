@@ -373,6 +373,7 @@ var enMessages = map[string]string{
 	"conn.invalid_scan":       "[WARN] Invalid selection, entering scan mode...",
 	"conn.config_path_fail":   "Failed to get config path: %w",
 	"conn.config_save_fail":   "Failed to save config: %w",
+	"conn.keep_saved_network": "[INFO] Kept the previously saved network: %s",
 	"conn.daemon_fail":        "❌ Error: %v",
 	"conn.ask_manual_scan":    "\nManually scan networks? [y/N]: ",
 	"conn.try_scan_mode":      "[INFO] Trying minimal config for scan mode...",

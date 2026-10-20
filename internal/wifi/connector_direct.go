@@ -47,7 +47,8 @@ func (c *Connector) checkConnectionStatusDirect() (bool, string) {
 			for _, line := range strings.Split(outStr, "\n") {
 				line = strings.TrimSpace(line)
 				if strings.HasPrefix(line, "SSID: ") {
-					ssid := strings.TrimPrefix(line, "SSID: ")
+					// iw escapes non-ASCII bytes as \xNN like wpa_cli (e.g. a Chinese SSID)
+					ssid := decodeWpaString(strings.TrimPrefix(line, "SSID: "))
 					if ssid != "" {
 						return true, ssid
 					}
@@ -105,7 +106,7 @@ func (c *Connector) showConnectionInfoDirect() {
 		for _, line := range strings.Split(string(linkOut), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "SSID: ") {
-				ssid = strings.TrimPrefix(line, "SSID: ")
+				ssid = decodeWpaString(strings.TrimPrefix(line, "SSID: "))
 			} else if strings.HasPrefix(line, "Connected to ") {
 				parts := strings.Fields(line)
 				if len(parts) >= 3 {

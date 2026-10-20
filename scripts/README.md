@@ -43,8 +43,11 @@ flowchart TD
 | `-OutDir` | String | `results.json` 與失敗證據輸出目錄（預設 `%TEMP%\qwt_e2e_<時間>`） | CI 收集報告 |
 | `-CanaryIface` | String | 網卡隔離測試的假 daemon 所綁定的網卡（預設 `eth9`，不需實際存在） | 板上真的有 `eth9` 時改用其他名稱 |
 | `-DiagOnly` | Switch | **僅執行 Phase 4**：診斷選單、驅動卸載／載入／重新載入、重載後 AP 實測（opt-in，不含於預設） | 驗證驅動生命週期；跑完可能需要重開機 |
+| `-StaConnect` | Switch | 在所選模式之外**加跑 Phase 5**：連線到真實參考 AP（掃描、連線＋DHCP、斷線、自動重連、保留既有連線、錯誤密碼） | 驗證 Station 模式的實際連線 |
+| `-StaConnectOnly` | Switch | **僅執行 Phase 5** | 只驗證實際連線 |
+| `-RefApFile` | String | 參考 AP 檔案（預設 `%USERPROFILE%\.qwt\ref_ap.txt`）：第 1 行 SSID、第 2 行密碼，所有輸出中密碼一律遮罩 | 使用其他參考 AP 時 |
 
-預設完整測試共 **50** 項（AP 30 + STA 12 + RF 7 + 網卡隔離 1）；`-MatrixOnly` 43 項；`-DiagOnly` 5 項。英文介面與網卡隔離項目說明見 [`docs/e2e_wifi_test_guide.md`](../docs/e2e_wifi_test_guide.md)。
+預設完整測試共 **50** 項（AP 30 + STA 12 + RF 7 + 網卡隔離 1）；`-MatrixOnly` 43 項；`-DiagOnly` 5 項；`-StaConnectOnly` 7 項（`-StaConnect` 另加 6 項）。參考 AP 為手機熱點時，測試期間請停留在熱點設定畫面，否則熱點會停止廣播，導致結果為 INCONCLUSIVE。英文介面與網卡隔離項目說明見 [`docs/e2e_wifi_test_guide.md`](../docs/e2e_wifi_test_guide.md)。
 
 板端輔助腳本（測試啟動時自動推送到 `/data/local/tmp/`，需與 `e2e_wifi_test.ps1` 放在同一目錄）：
 - `qwt_board_cleanup.sh`：只清理綁定測試網卡（或未宣告網卡）的 daemon。

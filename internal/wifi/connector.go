@@ -168,14 +168,27 @@ func (c *Connector) Start() (bool, error) {
 	}
 	c.configPath = configPath
 
+	// Tier 3 (generated) is rebuilt on every entry so XML edits apply, but the network saved by the
+	// previous session is carried over; otherwise auto-connect could never find it.
 	if !exists {
 		configContent := config.GenerateWpaSupplicantConfig(c.module, c.ctrlInterface, "", "")
+		if prev, err := os.ReadFile(c.configPath); err == nil {
+			if merged, kept := carryOverSavedNetwork(configContent, string(prev)); kept {
+				configContent = merged
+				fmt.Println(i18n.Tf("conn.keep_saved_network", c.configPath))
+			}
+		}
 		if err := config.SaveConfig(c.configPath, configContent); err != nil {
 			return false, fmt.Errorf(i18n.T("conn.config_save_fail"), err)
 		}
 
 		if confMgr.PromptSaveCustom() {
-			confMgr.SaveAsCustomConfig(configContent)
+			// Networks are added to c.configPath, so it has to be the custom file to persist in it
+			if err := confMgr.SaveAsCustomConfig(configContent); err != nil {
+				fmt.Println(ui.Yellow + err.Error() + ui.Reset)
+			} else {
+				c.configPath = confMgr.CustomConfigPath()
+			}
 		}
 	}
 
@@ -278,6 +291,13 @@ func (c *Connector) startDaemon() error {
 	sys.KillDaemonsForIface([]string{"hostapd", "hostapd_s1g"}, iface)
 	sys.KillProcsForIface([]string{"dnsmasq"}, iface)
 
+	// A wpa_supplicant kept from an earlier session (it survives the tool exiting) that is no
+	// longer connected must not stay alongside the new instance; both would drive the interface
+	if sys.KillDaemonsForIface(c.supplicantNames(), iface) > 0 {
+		time.Sleep(300 * time.Millisecond) // SIGKILL is async; let it release the nl80211 handle
+		c.cleanupSocketFiles()
+	}
+
 	exec.Command("ip", "link", "set", iface, "down").Run()
 	exec.Command(iwPath(), "dev", iface, "set", "type", "managed").Run()
 
@@ -311,17 +331,21 @@ func (c *Connector) startDaemon() error {
 		c.log.LogDaemonStart(c.wpaSupplicant, args, daemonLogPath)
 	}
 
-	cmd := exec.Command(c.wpaSupplicant, args...)
+	// The output goes through a pipe this process reads to timestamp the log. When the user keeps
+	// the connection and the tool exits, that pipe has no reader: SIGPIPE is ignored (the ignored
+	// disposition survives exec) so the daemon's writes just fail instead of killing it. Its own
+	// session keeps it clear of the terminal's SIGHUP/SIGINT.
+	cmd := exec.Command("sh", append([]string{"-c", `trap "" PIPE; exec "$0" "$@"`, c.wpaSupplicant}, args...)...)
 	if tw != nil {
 		cmd.Stdout = tw
 		cmd.Stderr = tw
 		c.wpaLog = tw
 	}
+	sys.Detach(cmd)
 
 	err := cmd.Start()
-	
-	// Keep the writer open since it's running in background as child process
-	// We will rely on disconnect/cleanup to kill wpa_supplicant.
+
+	// The daemon outlives this process when the user keeps the connection; disconnect/cleanup kills it
 	if err != nil {
 		if tw != nil {
 			tw.Close()
@@ -709,6 +733,26 @@ func (c *Connector) connectToNetwork(ssid, password, flags string) error {
 	return nil
 }
 
+// supplicantNames lists the process names a wpa_supplicant of this module can run under
+func (c *Connector) supplicantNames() []string {
+	names := []string{"wpa_supplicant", "wpa_supplicant_s1g"}
+	if c.wpaSupplicant != "" {
+		base := filepath.Base(c.wpaSupplicant)
+		if base != "" && base != "wpa_supplicant" && base != "wpa_supplicant_s1g" {
+			names = append(names, base)
+		}
+	}
+	return names
+}
+
+// StopIfStarted stops the daemon only when this session started it, so a session that ends in
+// an error does not leave it running (it is detached and would outlive the tool)
+func (c *Connector) StopIfStarted() {
+	if c.daemonStarted {
+		c.Stop()
+	}
+}
+
 // Stop stops the wpa_supplicant daemon, cleans up network interfaces, DHCP clients and IPs
 func (c *Connector) Stop() error {
 	iface := c.module.Kernel.GetInterface()
@@ -728,14 +772,7 @@ func (c *Connector) Stop() error {
 
 	// 3. Kill wpa_supplicant instances that may control this interface
 	//    (bound to it, or global/D-Bus mode); instances bound only to other interfaces are kept
-	procsToKill := []string{"wpa_supplicant", "wpa_supplicant_s1g"}
-	if c.wpaSupplicant != "" {
-		base := filepath.Base(c.wpaSupplicant)
-		if base != "" && base != "wpa_supplicant" && base != "wpa_supplicant_s1g" {
-			procsToKill = append(procsToKill, base)
-		}
-	}
-	sys.KillDaemonsForIface(procsToKill, iface)
+	sys.KillDaemonsForIface(c.supplicantNames(), iface)
 
 	// 4. Kill DHCP clients bound to this interface only (keep e.g. eth0's lease renewal alive)
 	sys.KillProcsForIface([]string{"udhcpc", "dhclient"}, iface)

@@ -115,6 +115,43 @@ func removeNetworkBlock(content string) string {
 	return strings.Join(result, "\n")
 }
 
+// extractNetworkBlocks returns the network={...} blocks of content (same brace rules as
+// removeNetworkBlock), or "" when there are none
+func extractNetworkBlocks(content string) string {
+	var blocks []string
+	inNetworkBlock := false
+	braceCount := 0
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !inNetworkBlock && (strings.HasPrefix(trimmed, "network=") || strings.HasPrefix(trimmed, "network {")) {
+			inNetworkBlock = true
+			braceCount = strings.Count(line, "{") - strings.Count(line, "}")
+			blocks = append(blocks, line)
+			continue
+		}
+		if inNetworkBlock {
+			blocks = append(blocks, line)
+			braceCount += strings.Count(line, "{") - strings.Count(line, "}")
+			if braceCount <= 0 {
+				inNetworkBlock = false
+			}
+		}
+	}
+	return strings.Join(blocks, "\n")
+}
+
+// carryOverSavedNetwork replaces the network blocks of a freshly generated config with the ones
+// saved in the previous version of the file. Global parameters still come from the fresh (XML)
+// content; a saved network wins over the XML default network, as it does for system configs.
+func carryOverSavedNetwork(fresh, previous string) (string, bool) {
+	saved := extractNetworkBlocks(previous)
+	if saved == "" {
+		return fresh, false
+	}
+	return strings.TrimRight(removeNetworkBlock(fresh), "\n") + "\n\n" + saved + "\n", true
+}
+
 // deriveKeyMgmt determines key_mgmt value from scan flags
 func deriveKeyMgmt(flags string) string {
 	upper := strings.ToUpper(flags)
